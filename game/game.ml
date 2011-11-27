@@ -8,6 +8,10 @@ type game = ((worm_id, worm_data) t *
   (projectile_id, projectile_data) t * 
 	(obstacle_id, obstacle_data) t * 
 	(timer ref)) 
+	
+let projectile_id_counter = ref 0
+let wormWaypoints = Hasthbl.create (cNUM_TEAMS * cTEAM_SIZE)
+let futureProj = Hashtbl.create (cNUM_TEAMS * cTEAM_SIZE)
 
 let initGame () : game = 
    let obst = create_obstable() in
@@ -65,9 +69,43 @@ let startGame g =
   failwith "How can you make a worm happy? 
   Cut off his tail, he'll be delighted!"
 
-let handleAction g worm_id act c = 
-  failwith "What do you call it when worms take over the world?
-  Global Worming!"
+let handleAction (wt,pt,ot,t) worm_id act c = 
+	let (_,wormtype,hlth,pos,vel,a,t1,t2) = Hashtbl.find wt worm_id in
+  match act with
+		QueueShoot(v) ->
+		 (let weapon = 
+				(match wormtype with
+					Basic -> Bomb
+				| Grenader -> Grenade
+				| MissileBlaster -> Missile
+				| Miner -> Mine
+				| PelletShooter -> Pellet
+				| LazerGunner -> Lazer) in
+			 (* accel needs to be figured out *)
+			let accel = (0.,0.) in
+			let p : projectile = (!projectile_id_counter,weapon,pos,v,accel) in
+				(try 
+					let relList = Hashtbl.find futureProj worm_id in
+						Hashtbl.replace futureProj worm_id (relList@[p])
+				with Not_found e -> 
+					Hashtbl.add futureProj worm_id [p]);
+				projectile_id_counter := !projectile_id_counter + 1)
+	| QueueMove(v) ->
+			let relList = Hashtbl.find wormWaypoints worm_id in
+				Hashtbl.replace wormWaypoints worm_id (relList@[v])
+	| QueueBat -> 
+			let p : projectile = (!projectile_id_counter,Bat,pos,(0.,0.),(0.,0.)) in
+			(try
+				let relList = Hashtbl.find futureProj worm_id in
+					Hashtbl.replace futureProj worm_id (relList@[p])
+			with Not_found e ->
+				Hashtbl.add futureProj worm_id [p]);
+			projectile_id_counter := !projectile_id_counter + 1
+	| ClearShoot ->
+	| ClearMove ->
+	| Promote(wt) ->
+	| Talk(s) ->
+	
 let handleStatus g status = 
   failwith "Whats the difference between a worm and an apple?
   Have you ever had worm pie?!!?"
