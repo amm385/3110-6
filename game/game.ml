@@ -8,11 +8,31 @@ type game = ((worm_id, worm_data) t *
   (projectile_id, projectile_data) t * 
 	(obstacle_id, obstacle_data) t * 
 	(timer ref)) 
+let gameLock = Mutex.create ()
+
+let yfinder xpos = 
+  let lineFinder ((x1,y1),(x2,y2),b) (x3,y3) = 
+		if b then ((x1,y1),(x2,y2),true) else 
+			(if x2 <= xpos && x3 >= xpos
+			then ((x2,y2),(x3,y3),true)
+			else ((x2,y2),(x2,y2),false)) in
+	let calcY (x1,y1) (x2,y2) =
+		let m = (y2 -. y1) /. (x2 -. x1) in
+  		m *. (xpos -. x1) +. y1 in
+	let (l,r,_) = List.fold_left lineFinder ((0.,0.),(0.,0.),false) cBOARD in
+	  calcY l r 
 	
 let projectile_id_counter = ref 0
-let wormWaypoints = Hasthbl.create (cNUM_TEAMS * cTEAM_SIZE)
+let pidLock = Mutex.create ()
+	(* type (wormId,vector list) t *)
+let wormWaypoints = Hashtbl.create (cNUM_TEAMS * cTEAM_SIZE)
+let waypointLock = Mutex.create()
+	(* type (wormId,projectile list) t *)
 let futureProj = Hashtbl.create (cNUM_TEAMS * cTEAM_SIZE)
+let projLock = Mutex.create()
+	(* type (wormId,wormtype) t *)
 let promotionTable = Hashtbl.create (cNUM_TEAMS * cTEAM_SIZE)
+let promoLock = Mutex.create()
 
 let initGame () : game = 
    let obst = create_obstable() in
@@ -33,7 +53,7 @@ let initGame () : game =
 let initWorms (wt,pt,ot,t) = 
 	let count = ref 1 in
 	let addWorm team =
-		(* wormID is positive for first team, negative for second *)
+		(* wormID is positive for Red team, negative for Blue *)
 		let id = 
 			if team = 0
 			then !count
@@ -42,17 +62,7 @@ let initWorms (wt,pt,ot,t) =
 			if team = 0 
 			then Random.float cRED_START
 			else (Random.float (cBOARD_WIDTH -. cBLUE_START)) +. cBLUE_START in
-		let lineFinder ((x1,y1),(x2,y2),b) (x3,y3) = 
-			if b then ((x1,y1),(x2,y2),true) else 
-				(if x2 <= xpos && x3 >= xpos
-				then ((x2,y2),(x3,y3),true)
-				else ((x2,y2),(x2,y2),false)) in
-		let calcY (x1,y1) (x2,y2) =
-			let m = (y2 -. y1) /. (x2 -. x1) in
-			m *. (xpos -. x1) +. y1 in
-		let ypos = 
-			let (l,r,_) = List.fold_left lineFinder ((0.,0.),(0.,0.),false) cBOARD in
-			calcY l r in
+		let ypos = yfinder xpos in
 		Hashtbl.add wt id (id,Basic, cBASIC_HEALTH, (xpos,ypos), 
 			(0.,0.),(0.,cGRAVITY), cBASIC_ATTACK_COOLDOWN,-1.0) in
 	let rec wormCycle m team =
@@ -65,53 +75,196 @@ let initWorms (wt,pt,ot,t) =
 		else wormCycle 0 n; count := 1; teamCycle (n + 1) in
 	teamCycle 0
   
-
 let startGame g = 
   failwith "How can you make a worm happy? 
   Cut off his tail, he'll be delighted!"
-
+	
+ 
+	
 let handleAction (wt,pt,ot,t) worm_id act c = 
 	let (_,wormtype,hlth,pos,vel,a,t1,t2) = Hashtbl.find wt worm_id in
   match act with
 		QueueShoot(v) ->
-		 (let weapon = 
+		 (let (weapon,timer) = 
 				(match wormtype with
-					Basic -> Bomb
-				| Grenader -> Grenade
-				| MissileBlaster -> Missile
-				| Miner -> Mine
-				| PelletShooter -> Pellet
-				| LazerGunner -> Lazer) in
+					Basic -> (Bomb,None)
+				| Grenader -> (Grenade,Some cGRENADE_DETONATION_TIME)
+				| MissileBlaster -> (Missile,None)
+				| Miner -> (Mine,Some cMINE_DETONATION_TIME)
+				| PelletShooter -> (Pellet,None)
+				| LazerGunner -> (Lazer,None)) in
 			 (* accel needs to be figured out *)
 			let accel = (0.,0.) in
-			let p : projectile = (!projectile_id_counter,weapon,pos,v,accel) in
+			let p : projectile = 
+				(!projectile_id_counter,weapon,pos,v,accel,timer) in
 				(try 
 					let relList = Hashtbl.find futureProj worm_id in
-						Hashtbl.replace futureProj worm_id (relList@[p])
-				with Not_found e -> 
+						Mutex.lock projLock;
+						Hashtbl.replace futureProj worm_id (relList@[p]);
+						Mutex.unlock projLock;
+				with Not_found -> 
+					Mutex.lock projLock;
 					Hashtbl.add futureProj worm_id [p]);
-				projectile_id_counter := !projectile_id_counter + 1)
+					Mutex.unlock projLock;
+				Mutex.lock pidLock;
+				projectile_id_counter := !projectile_id_counter + 1;
+				Mutex.unlock pidLock)
 	| QueueMove(v) ->
+			(* set worms speed, vx *)
 			let relList = Hashtbl.find wormWaypoints worm_id in
-				Hashtbl.replace wormWaypoints worm_id (relList@[v])
+				Mutex.lock waypointLock;
+				Hashtbl.replace wormWaypoints worm_id (relList@[v]);
+				Mutex.unlock waypointLock
 	| QueueBat -> 
-			let p : projectile = (!projectile_id_counter,Bat,pos,(0.,0.),(0.,0.)) in
+			let p : projectile = 
+				(!projectile_id_counter,Bat,pos,(0.,0.),(0.,0.),None) in
 			(try
 				let relList = Hashtbl.find futureProj worm_id in
-					Hashtbl.replace futureProj worm_id (relList@[p])
-			with Not_found e ->
+					Mutex.lock projLock;
+					Hashtbl.replace futureProj worm_id (relList@[p]);
+					Mutex.unlock projLock;
+			with Not_found ->
+				Mutex.lock projLock;
 				Hashtbl.add futureProj worm_id [p]);
-			projectile_id_counter := !projectile_id_counter + 1
-	| ClearShoot -> Hashtbl.replace futureProj worm_id []
-	| ClearMove -> Hashtbl.replace wormWaypoints worm_id []
-	| Promote(wt) -> if Hashtbl.mem worm_id then () else Hashtbl.add worm_id wt 
+				Mutex.unlock projLock;
+			Mutex.lock pidLock;
+			projectile_id_counter := !projectile_id_counter + 1;
+			Mutex.unlock pidLock
+	| ClearShoot -> 
+			Mutex.lock projLock;
+			Hashtbl.replace futureProj worm_id [];
+			Mutex.unlock projLock;
+	| ClearMove ->
+			Mutex.lock waypointLock;
+			Hashtbl.replace wormWaypoints worm_id [];
+			Mutex.unlock waypointLock;
+	| Promote(wormtype) -> 
+		let newt = 
+		 (match wormtype with 
+				Grenader -> cGRENADE_PROMOTION_TIME
+			| MissileBlaster -> cMISSILE_PROMOTION_TIME
+			| Miner -> cMINER_PROMOTION_TIME
+			| PelletShooter -> cPELLET_SHOOTER_PROMOTION_TIME
+			| LazerGunner -> cLAZER_GUNNER_PROMOTION_TIME
+			| Basic -> failwith "Attempted to promote to basic??") in
+		Mutex.lock gameLock;
+		Hashtbl.replace wt worm_id (worm_id,wormtype,hlth,pos,vel,a,t1,newt);
+		Mutex.unlock gameLock;
+		if Hashtbl.mem promotionTable worm_id 
+		then () 
+		else 
+			Mutex.lock promoLock;
+			Hashtbl.add promotionTable worm_id wormtype;
+			Mutex.unlock promoLock;
 	| Talk(s) ->  Netgraphics.add_update (DisplayString(c,s))
 	
-let handleStatus g status = 
-  failwith "Whats the difference between a worm and an apple?
-  Have you ever had worm pie?!!?"
+let handleStatus g status = failwith "poop"
+ (* match status with
+		WormStatus(id) -> 
+	| ProjectileStatus(d) ->
+	| TeamStatus(c) ->
+	| ObstacleStatus ->
+	| GameStatus ->*)
 
-let handleTime g newt = 
-  failwith "Why did the sparrow go to the library?
-  To look for bookworms!"
-  
+let checkAlive tbl = 
+	let helper id (id2,wt,h,p,v,a,t1,t2) (r,b) = 
+		if id > 0 && h > 0 then (r+1,b) else
+		if id < 0 && h > 0 then (r,b+1) else 
+			(r,b) in
+	Hashtbl.fold helper tbl (0,0)
+	
+let score c =
+	failwith "poopy"
+	
+
+let inCloud x y = 
+  let helper acc (cx,cy) = if 
+	List.fold_left helper false cCLOUD_POSITIONS 
+
+
+	
+let handleTime (wt,pt,ot,t) newt = 
+	(* CHECK FOR GAME END *)
+  if newt >= cTIME_LIMIT
+	then
+		Some (if score Red > score Blue then Winner Red
+			else if score Red < score Blue then Winner Blue else Tie)
+	else
+		let (r,b) = checkAlive wt in
+		if r = 0 then Some(Winner Blue) else
+		if b = 0 then Some(Winner Red) else
+	(* HANDLE PROMOTIONS *)
+			let promo_helper id (id2,wormtype,h,p,v,a,t1,t2) = 
+				let next = t2 -. newt +. t in
+				if wormtype = Basic && next <= 0. 
+				then (*perform upgrade*)
+					if Hashtbl.mem promotionTable id
+					then let newwt = Hashtbl.find promotionTable id in
+						(Mutex.lock gameLock;
+						Hashtbl.replace wt id (id,newwt,h,p,v,a,t1,next);
+						Mutex.unlock gameLock;)
+					else ()
+				else 
+					(Mutex.lock gameLock;
+					Hashtbl.replace wt id (id,wormtype,h,p,v,a,t1,next);
+					Mutex.unlock gameLock) in
+			Hashtbl.iter promo_helper wt;
+			
+	(* HANDLE POSITIONS *)
+			let pos_helper id lst =
+				match lst with
+					[] -> ()
+				| (hx,hy)::tl -> 
+					let (id2,wormtype,h,(px,py),v,a,t1,t2) = Hashtbl.find wt id in
+					let speedtype = 
+					  (match wormtype with 
+						   Basic -> cBASIC_SPEED
+						 | Grenader -> cGRENADER_SPEED
+						 | MissileBlaster -> cMISSILE_BLASTER_SPEED
+						 | Miner -> cMINER_SPEED
+						 | PelletShooter -> cPELLET_SHOOTER_SPEED
+						 | LazerGunner ->  cLAZER_GUNNER_SPEED
+					  ) in  
+					let speed = if hx >= px then speedtype else -.speedtype in
+					let newx = px +. (newt -. t)*.speed in
+					let finalx = 
+						if (newx >= hx && px <= hx) || (newx <= hx && px >= hx)
+						then 
+							(Mutex.lock waypointLock;
+							Hashtbl.replace wormWaypoints id tl;
+							Mutex.unlock waypointLock;
+							hx)
+						else newx in
+					let newy = yfinder finalx in
+					let newspeed = 
+					  (match tl with 
+						  [] -> 0.
+						| (x,y)::t -> if x <= newx then -.speedtype else speedtype) in
+					Mutex.lock gameLock;
+					Hashtbl.replace wt id 
+						(id,wormtype,h,(newx,newy),(newspeed,0.),a,t1,t2);
+					Mutex.unlock gameLock; in	
+			Hashtbl.iter pos_helper wormWaypoints;
+			
+	(* PROJECTILE POSITIONS *)
+			 
+			let proj_helper id (_,weapont,(px,py),(vx,vy),(ax,ay),projt) = 
+				  let rawdrag = 
+				  match weapont with 
+            Bomb -> cBOMB_DRAG
+          | Grenade -> cGRENADE_DRAG
+					| Missile -> cMISSILE_DRAG
+					| Mine -> cMINE_DRAG
+					| Pellet -> cPELLET_DRAG
+					| Lazer -> cLAZER_DRAG in
+					
+				let drag = if inCloud px py then rawdrag +. cCLOUD_DRAG else rawdrag in
+				let newax = c 
+				let newvx = vx +. ax *. (newt -. t) in
+				let newvy = vy +. ay *. (newt -. t) in
+			  let newpx = px +. vx *. (newt -. t) in
+				let newpy = py +. vy *. (newt -. t) in
+				
+			Hashtbl.iter proj_helper pt 
+			
+	
