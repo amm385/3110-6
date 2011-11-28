@@ -12,6 +12,7 @@ type game = ((worm_id, worm_data) t *
 let projectile_id_counter = ref 0
 let wormWaypoints = Hasthbl.create (cNUM_TEAMS * cTEAM_SIZE)
 let futureProj = Hashtbl.create (cNUM_TEAMS * cTEAM_SIZE)
+let promotionTable = Hashtbl.create (cNUM_TEAMS * cTEAM_SIZE)
 
 let initGame () : game = 
    let obst = create_obstable() in
@@ -101,10 +102,10 @@ let handleAction (wt,pt,ot,t) worm_id act c =
 			with Not_found e ->
 				Hashtbl.add futureProj worm_id [p]);
 			projectile_id_counter := !projectile_id_counter + 1
-	| ClearShoot ->
-	| ClearMove ->
-	| Promote(wt) ->
-	| Talk(s) ->
+	| ClearShoot -> Hashtbl.replace futureProj worm_id []
+	| ClearMove -> Hashtbl.replace wormWaypoints worm_id []
+	| Promote(wt) -> if Hashtbl.mem worm_id then () else Hashtbl.add worm_id wt 
+	| Talk(s) ->  Netgraphics.add_update (DisplayString(c,s))
 	
 let handleStatus g status = 
   failwith "Whats the difference between a worm and an apple?
