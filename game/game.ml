@@ -178,7 +178,10 @@ let score c =
 	
 
 let inCloud x y = 
-  let helper acc (cx,cy) = if 
+  let helper acc (cx,cy) = 
+	  if Pervasives.sqrt((cx -. x) ** 2.0 +. (cy -. y) ** 2.0)  < cCLOUD_RADIUS
+		then acc || true
+		else acc || false in
 	List.fold_left helper false cCLOUD_POSITIONS 
 
 
@@ -256,15 +259,32 @@ let handleTime (wt,pt,ot,t) newt =
 					| Missile -> cMISSILE_DRAG
 					| Mine -> cMINE_DRAG
 					| Pellet -> cPELLET_DRAG
-					| Lazer -> cLAZER_DRAG in
+					| Lazer -> cLAZER_DRAG 
+					| Bat -> 0.0 in
 					
 				let drag = if inCloud px py then rawdrag +. cCLOUD_DRAG else rawdrag in
-				let newax = c 
-				let newvx = vx +. ax *. (newt -. t) in
-				let newvy = vy +. ay *. (newt -. t) in
-			  let newpx = px +. vx *. (newt -. t) in
-				let newpy = py +. vy *. (newt -. t) in
+				(*subject to change depending on the agreed formula*)
+				let newax = -.drag *. vx in
+        let neway = -.drag *. vx +. cGRAVITY in				
+				let newvx = vx +. newax *. (newt -. t) in
+				let newvy = vy +. neway *. (newt -. t) in
+			  let newpx = px +. newvx *. (newt -. t) in
+				let newpy = py +. newvy *. (newt -. t) in
+				Mutex.lock gameLock;
+				Hashtbl.replace pt id (id,weapont,(newpx,newpy),(newvx,newvy),(newax,neway),projt);
+				Mutex.lock gameLock in
 				
-			Hashtbl.iter proj_helper pt 
+			Hashtbl.iter proj_helper pt; 
+			
+			(*ADD PROJECTILES*)
+			(*the problem is helper gets a list*)
+			let proj_add_helper id (pid,weapont,p,(vxproj,vyproj),a,t) = 
+			  let (wid,wormtype,h,(px,py),(vx,vy),(ax,ay),t1,t2) = 
+				  Hashtbl.find wt id in
+				if t1 <= 0 then 
+				  Hashtbl.add pt pid (pid,weapont,(px,py),(vx +. vxproj,vy +. vyproj),a,t) 
+        else ()	in
+			
+			Hashtbl.iter proj_add_helper futureProj;
 			
 	
