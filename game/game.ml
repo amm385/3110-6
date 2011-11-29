@@ -272,19 +272,51 @@ let handleTime (wt,pt,ot,t) newt =
 				let newpy = py +. newvy *. (newt -. t) in
 				Mutex.lock gameLock;
 				Hashtbl.replace pt id (id,weapont,(newpx,newpy),(newvx,newvy),(newax,neway),projt);
-				Mutex.lock gameLock in
+				Mutex.unlock gameLock in
 				
 			Hashtbl.iter proj_helper pt; 
 			
 			(*ADD PROJECTILES*)
 			(*the problem is helper gets a list*)
-			let proj_add_helper id (pid,weapont,p,(vxproj,vyproj),a,t) = 
-			  let (wid,wormtype,h,(px,py),(vx,vy),(ax,ay),t1,t2) = 
-				  Hashtbl.find wt id in
-				if t1 <= 0 then 
-				  Hashtbl.add pt pid (pid,weapont,(px,py),(vx +. vxproj,vy +. vyproj),a,t) 
-        else ()	in
+			 let proj_add_helper id proj_queue = 
+			   let proj_queue_helper (pid,weapont,p,(vxproj,vyproj),a,t) = 
+			     let (wid,wormtype,h,(px,py),(vx,vy),(ax,ay),t1,t2) = 
+				     Hashtbl.find wt id in
+				   if t1 <= 0 then 
+							(*Will have to remove the proj from the queue*)
+						 (Mutex.lock gameLock;
+						  Hashtbl.add pt pid (pid,weapont,(px,py),(vx +. vxproj,vy +. vyproj),a,t);
+              Mutex.unlock gameLock;)						 
+           else ()	in
+			   List.iter proj_queue_helper proj_queue in 
 			
 			Hashtbl.iter proj_add_helper futureProj;
+			
+			
+			(*REMOVE DEAD OBJECTS*)
+			let worm_remove_helper id (_,_,health,_,_,_,_,_) = 
+			  if health <= 0 then 
+				  (Mutex.lock gameLock;
+					 Hashtbl.remove wt id;
+					 Mutex.unlock gameLock;)
+				else () in
+				
+			Hashtbl.iter worm_remove_helper wt;
+			
+			let obstacle_remove_helper id obst =
+        match obst with 
+				  Cloud(_,_) -> ()
+				| Satellite(_,p,health) -> 
+            if health <= 0 then
+             (Mutex.lock gameLock;
+					    Hashtbl.remove ot id;
+					    Mutex.unlock gameLock;)
+				    else () in
+      
+			Hashtbl.iter obstacle_remove_helper ot 						
+				
+			
+				
+			
 			
 	
