@@ -3,25 +3,13 @@ open Definitions
 open State
 open Constants
 
-
+		(* DATA STRUCTURES *)
 type game = ((worm_id, worm_data) t * 
   (projectile_id, projectile_data) t * 
 	(obstacle_id, obstacle_data) t * 
 	(timer ref)) 
 let gameLock = Mutex.create ()
 
-let yfinder xpos = 
-  let lineFinder ((x1,y1),(x2,y2),b) (x3,y3) = 
-		if b then ((x1,y1),(x2,y2),true) else 
-			(if x2 <= xpos && x3 >= xpos
-			then ((x2,y2),(x3,y3),true)
-			else ((x2,y2),(x2,y2),false)) in
-	let calcY (x1,y1) (x2,y2) =
-		let m = (y2 -. y1) /. (x2 -. x1) in
-  		m *. (xpos -. x1) +. y1 in
-	let (l,r,_) = List.fold_left lineFinder ((0.,0.),(0.,0.),false) cBOARD in
-	  calcY l r 
-	
 let projectile_id_counter = ref 0
 let pidLock = Mutex.create ()
 	(* type (wormId,vector list) t *)
@@ -34,6 +22,28 @@ let projLock = Mutex.create()
 let promotionTable = Hashtbl.create (cNUM_TEAMS * cTEAM_SIZE)
 let promoLock = Mutex.create()
 
+		(* HELPER FUNCTIONS *)
+(* Returns the y value on the map ground associated with xpos *)
+let yfinder xpos = 
+  let lineFinder ((x1,y1),(x2,y2),b) (x3,y3) = 
+		if b then ((x1,y1),(x2,y2),true) else 
+			(if x2 <= xpos && x3 >= xpos
+			then ((x2,y2),(x3,y3),true)
+			else ((x2,y2),(x2,y2),false)) in
+	let calcY (x1,y1) (x2,y2) =
+		let m = (y2 -. y1) /. (x2 -. x1) in
+  		m *. (xpos -. x1) +. y1 in
+	let (l,r,_) = List.fold_left lineFinder ((0.,0.),(0.,0.),false) cBOARD in
+	  calcY l r 
+		
+let lineInter (x1,y1) (x2,y2) (x3,y3) (x4,y4) =
+	let m1 = (y2 -. y1)/.(x2 -. x1) in
+	let m2 = (y4 -. y3)/.(x4 -. x3) in
+	let x = (m1*.x1 -. m2*.x3 -. y1 +. y3) /. (m1 -. m2) in
+	let y = m1 *. (x -. x1) +. y1 in
+		(x,y)
+					
+		(* ACTUAL FUNCTIONS *)
 let initGame () : game = 
    let obst = create_obstable() in
 	 let count = ref 0 in
@@ -117,7 +127,10 @@ let handleAction (wt,pt,ot,t) worm_id act c =
 				Mutex.unlock waypointLock
 	| QueueBat -> 
 			let p : projectile = 
-				(!projectile_id_counter,Bat,pos,(0.,0.),(0.,0.),None) in
+				(* Here we use vx to hide the team for friendly fire analysis 
+						note, vx is otherwise useless *)
+				let team = float_of_int worm_id in
+				(!projectile_id_counter,Bat,pos,(team,0.),(0.,0.),None) in
 			(try
 				let relList = Hashtbl.find futureProj worm_id in
 					Mutex.lock projLock;
@@ -276,7 +289,7 @@ let handleTime (wt,pt,ot,t) newt =
 				
 			Hashtbl.iter proj_helper pt; 
 			
-			(*ADD PROJECTILES*)
+	(*ADD PROJECTILES*)
 			(*the problem is helper gets a list*)
 			 let proj_add_helper id proj_queue = 
 			   let proj_queue_helper (pid,weapont,p,(vxproj,vyproj),a,t) = 
@@ -292,8 +305,85 @@ let handleTime (wt,pt,ot,t) newt =
 			
 			Hashtbl.iter proj_add_helper futureProj;
 			
-			
-			(*REMOVE DEAD OBJECTS*)
+	(* HANDLE EXPLOSIONS *)					
+			(* the input "team" can be one of two things:
+					a) the weapon is a bat and it is a positive int if
+							the bat holder is red / negative int if blue
+							-In this case team * id <=0 (line 48ish) 
+								if the worm hit and the worm hitting are on opposite teams
+					b) the weapon is not a bat and it is 0
+							-In this case, team * id = 0 always and thus
+								all worms in vicinity are hurt (friendly fire!) *)
+								
+			let explode x y weapont team projID = 
+				let (r,dam) = 
+					match weapont with 
+						Bomb -> (cBOMB_EXPLOSION_RADIUS,cBOMB_DAMAGE)
+					|	Grenade -> (cGRENADE_EXPLOSION_RADIUS,cGRENADE_DAMAGE)
+					| Missile -> (cMISSILE_EXPLOSION_RADIUS,cMISSILE_DAMAGE)
+					| Mine -> (cMINE_EXPLOSION_RADIUS,cMINE_DAMAGE)
+					| Pellet -> (cPELLET_EXPLOSION_RADIUS,cPELLET_DAMAGE)
+					| Lazer -> (cLAZER_EXPLOSION_RADIUS,cLAZER_DAMAGE)
+					| Bat -> (cBAT_LENGTH,cBAT_DAMAGE) in
+				
+				(* bats don't do friendly fire; not yet implemented *)
+				let hurter id (_,wormtype,h,(px,py),v,a,t1,t2) =
+					let wormr = 
+						(match wormtype with
+							Basic -> cBASIC_RADIUS
+						|	Grenader -> cGRENADER_RADIUS
+						| MissileBlaster -> cMISSILE_BLASTER_RADIUS
+						| Miner -> cMINER_RADIUS
+						| PelletShooter -> cPELLET_SHOOTER_RADIUS
+						| LazerGunner -> cLAZER_GUNNER_RADIUS
+						) in
+					if (sqrt ((px -. x)**2.0 +. (py -. y)**2.0) < (r +. wormr)
+						&& (team * id <= 0 ))
+					then (* hurt the worm *)
+						(Mutex.lock gameLock;
+						Hashtbl.replace wt id (id,wormtype,h - dam,(px,py),v,a,t1,t2);
+						Mutex.unlock gameLock;)
+					else () in
+				
+				Hashtbl.iter hurter wt;
+				Mutex.lock gameLock;
+				Hashtbl.remove pt projID; (* remove projectile from active projs *)
+				Mutex.unlock gameLock;
+				in
+	
+			let explodeHelper id (_,weapont,(px,py),(vx,vy),a,projt) =
+				(* do something about bats too! *)
+				match weapont with
+					Bat -> (* just "explode" *) 
+						(* reminder that vx for a bat is the team (pos or neg) *)
+						explode px py weapont (int_of_float vx) id
+						
+				| (Grenade | Mine) -> (* explode if timer is up *)
+						(match projt with 
+								None -> failwith "timer of grenade/mine is None"
+							| Some (flt) ->
+								if flt -. newt +. t <= 0.
+								then explode px py weapont 0 id
+								else ())
+				| _ -> (* explode if colliding *)
+						if py <= (yfinder px) 
+						then (* true if colliding *)
+							match cBOARD with
+								[] -> failwith "thar be an empty board!"
+							| h::t ->
+									let boundFinder ((x1,y1),(x2,y2),b) (x3,y3) =
+										if b then ((x1,y1),(x2,y2),true) else 
+											(if x2 <= px && x3 >= px
+											then ((x2,y2),(x3,y3),true)
+											else ((x2,y2),(x2,y2),false)) in
+									let (l,r,_) = List.fold_left boundFinder (h,h,false) t in
+									let (x,y) = lineInter l r (px,py) (px -. vx, py -. vy) in
+									explode x y weapont 0 id;
+						else () in
+						
+			Hashtbl.iter explodeHelper pt;
+					
+	(*REMOVE DEAD OBJECTS*)
 			let worm_remove_helper id (_,_,health,_,_,_,_,_) = 
 			  if health <= 0 then 
 				  (Mutex.lock gameLock;
