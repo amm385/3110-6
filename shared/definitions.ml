@@ -33,7 +33,7 @@ type obstacle = Cloud of obstacle_id * position |
 type update = InitGraphics of vector list |
               Countdown of int | 
               DisplayString of color * string |
-              AddWorm of worm_id * position * health | (*always add basic worm*)
+              AddWorm of worm_id * position * health * color | (*always add basic worm*)
               MorphWorm of worm_id * worm_type |
               MoveWorm of worm_id * position |
               RemoveWorm of worm_id |              
@@ -44,6 +44,7 @@ type update = InitGraphics of vector list |
               GameOver of game_result |
               AddObstacle of obstacle |             
               RemoveObstacle of obstacle_id |
+              UpdateWorm of worm_id * health |
               DoBat of worm_id
 
 (* Type for control messages *)

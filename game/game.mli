@@ -21,11 +21,14 @@ val startGame: game -> unit
  * result command otherwise
  *)
 val handleAction: game -> worm_id -> action -> color -> command
+(* returns a Result *)
 
 (*Teams request information with handleStatus and return Data*)
 
 val handleStatus: game -> status -> command
+(* returns a Data *)
 
 (* Tick function that updates the state of the game to time t
 *)
 val handleTime: game -> float -> game_result option
+(* return None *)

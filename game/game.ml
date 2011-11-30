@@ -95,18 +95,19 @@ let handleAction (wt,pt,ot,t) worm_id act c =
 	let (_,wormtype,hlth,pos,vel,a,t1,t2) = Hashtbl.find wt worm_id in
   match act with
 		QueueShoot(v) ->
-		 (let (weapon,timer) = 
+		 (let (weapon,timer,projv,projpos) = 
 				(match wormtype with
-					Basic -> (Bomb,None)
-				| Grenader -> (Grenade,Some cGRENADE_DETONATION_TIME)
-				| MissileBlaster -> (Missile,None)
-				| Miner -> (Mine,Some cMINE_DETONATION_TIME)
-				| PelletShooter -> (Pellet,None)
-				| LazerGunner -> (Lazer,None)) in
+					Basic -> (Bomb,None,v,pos)
+				| Grenader -> (Grenade,Some cGRENADE_DETONATION_TIME,v,pos)
+				| MissileBlaster -> (Missile,None,v,pos)
+					(* only for mines, v is position vector, not velocity *)
+				| Miner -> (Mine,Some cMINE_DETONATION_TIME,(0.,0.),v)
+				| PelletShooter -> (Pellet,None,v,pos)
+				| LazerGunner -> (Lazer,None,v,pos)) in
 			 (* accel needs to be figured out *)
 			let accel = (0.,0.) in
 			let p : projectile = 
-				(!projectile_id_counter,weapon,pos,v,accel,timer) in
+				(!projectile_id_counter,weapon,projpos,projv,accel,timer) in
 				(try 
 					let relList = Hashtbl.find futureProj worm_id in
 						Mutex.lock projLock;
@@ -197,8 +198,6 @@ let inCloud x y =
 		else acc || false in
 	List.fold_left helper false cCLOUD_POSITIONS 
 
-
-	
 let handleTime (wt,pt,ot,t) newt = 
 	(* CHECK FOR GAME END *)
   if newt >= cTIME_LIMIT
@@ -270,7 +269,7 @@ let handleTime (wt,pt,ot,t) newt =
             Bomb -> cBOMB_DRAG
           | Grenade -> cGRENADE_DRAG
 					| Missile -> cMISSILE_DRAG
-					| Mine -> cMINE_DRAG
+					| Mine -> 0.0
 					| Pellet -> cPELLET_DRAG
 					| Lazer -> cLAZER_DRAG 
 					| Bat -> 0.0 in
@@ -290,6 +289,11 @@ let handleTime (wt,pt,ot,t) newt =
 			Hashtbl.iter proj_helper pt; 
 			
 	(*ADD PROJECTILES*)
+		(* SPECIAL CASE FOR MINES
+				they have no velocity or acceleration,
+				just check if position is within acceptable dist
+				from worm planting and reject or allow *)
+	
 			(*the problem is helper gets a list*)
 			 let proj_add_helper id proj_queue = 
 			   let proj_queue_helper (pid,weapont,p,(vxproj,vyproj),a,t) = 
@@ -305,7 +309,22 @@ let handleTime (wt,pt,ot,t) newt =
 			
 			Hashtbl.iter proj_add_helper futureProj;
 			
-	(* HANDLE EXPLOSIONS *)					
+	(* HANDLE EXPLOSIONS *)	
+			let checkForSatellite x y r pID = 
+				let satCollision oID obst =
+					match obst with
+						Cloud(_,p) -> ()
+					| Satellite(_,(px,py),h) -> 
+						if (Util.mag (px -. x,py -. y)) <= (r +. cSATELLITE_SIZE)
+						then (* satellite hit! *)
+							(Mutex.lock gameLock;
+							Hashtbl.replace ot oID (Satellite(oID,(px,py),h - 1));
+							Hashtbl.remove pt pID;
+							Mutex.unlock gameLock;)
+						else () in
+						
+				Hashtbl.iter satCollision ot in
+				
 			(* the input "team" can be one of two things:
 					a) the weapon is a bat and it is a positive int if
 							the bat holder is red / negative int if blue
@@ -326,7 +345,6 @@ let handleTime (wt,pt,ot,t) newt =
 					| Lazer -> (cLAZER_EXPLOSION_RADIUS,cLAZER_DAMAGE)
 					| Bat -> (cBAT_LENGTH,cBAT_DAMAGE) in
 				
-				(* bats don't do friendly fire; not yet implemented *)
 				let hurter id (_,wormtype,h,(px,py),v,a,t1,t2) =
 					let wormr = 
 						(match wormtype with
@@ -337,7 +355,7 @@ let handleTime (wt,pt,ot,t) newt =
 						| PelletShooter -> cPELLET_SHOOTER_RADIUS
 						| LazerGunner -> cLAZER_GUNNER_RADIUS
 						) in
-					if (sqrt ((px -. x)**2.0 +. (py -. y)**2.0) < (r +. wormr)
+					if (Util.mag (px -. x,py -. y) <= (r +. wormr)
 						&& (team * id <= 0 ))
 					then (* hurt the worm *)
 						(Mutex.lock gameLock;
@@ -352,7 +370,6 @@ let handleTime (wt,pt,ot,t) newt =
 				in
 	
 			let explodeHelper id (_,weapont,(px,py),(vx,vy),a,projt) =
-				(* do something about bats too! *)
 				match weapont with
 					Bat -> (* just "explode" *) 
 						(* reminder that vx for a bat is the team (pos or neg) *)
@@ -366,9 +383,9 @@ let handleTime (wt,pt,ot,t) newt =
 								then explode px py weapont 0 id
 								else ())
 				| _ -> (* explode if colliding *)
-						if py <= (yfinder px) 
-						then (* true if colliding *)
-							match cBOARD with
+						if (py <= (yfinder px))
+						then
+							(match cBOARD with
 								[] -> failwith "thar be an empty board!"
 							| h::t ->
 									let boundFinder ((x1,y1),(x2,y2),b) (x3,y3) =
@@ -378,8 +395,16 @@ let handleTime (wt,pt,ot,t) newt =
 											else ((x2,y2),(x2,y2),false)) in
 									let (l,r,_) = List.fold_left boundFinder (h,h,false) t in
 									let (x,y) = lineInter l r (px,py) (px -. vx, py -. vy) in
-									explode x y weapont 0 id;
-						else () in
+									explode x y weapont 0 id;)
+						else 
+							let radius = 
+								(match weapont with 
+									Bomb -> cBOMB_SIZE
+								| Missile -> cMISSILE_SIZE
+								| Pellet -> cPELLET_SIZE
+								| Lazer -> cLAZER_SIZE
+								| _ -> failwith "bad matching in explosion handler") in
+							checkForSatellite px py radius id in
 						
 			Hashtbl.iter explodeHelper pt;
 					
@@ -403,7 +428,7 @@ let handleTime (wt,pt,ot,t) newt =
 					    Mutex.unlock gameLock;)
 				    else () in
       
-			Hashtbl.iter obstacle_remove_helper ot 						
+			Hashtbl.iter obstacle_remove_helper ot			
 				
 			
 				
