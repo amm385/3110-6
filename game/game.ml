@@ -2,15 +2,14 @@ open Hashtbl
 open Definitions
 open State
 open Constants
+open Netgraphics
 
 		(* DATA STRUCTURES *)
 type game = ((worm_id, worm_data) t * 
   (projectile_id, projectile_data) t * 
 	(obstacle_id, obstacle_data) t * 
-	(timer)) 
+	(timer))
 let gameLock = Mutex.create ()
-
-
 
 let projectile_id_counter = ref 0
 let pidLock = Mutex.create ()
@@ -80,21 +79,24 @@ let inCloud x y =
 					
 		(* ACTUAL FUNCTIONS *)
 let initGame () : game = 
-   let obst = create_obstable() in
-	 let count = ref 0 in
-	 let helpercl elt =
-     Hashtbl.add obst !count (Cloud(!count,elt)); count := !count + 1 in
-	 let helpersat elt =
-     Hashtbl.add obst !count (Satellite(!count,elt,cSATELLITE_HEALTH)); 
-		 count := !count + 1 in
-	 List.iter helpercl cCLOUD_POSITIONS;
-   List.iter helpersat cSATELLITE_POSITIONS;	 
+	send_update (InitGraphics(cBOARD));
+  let obst = create_obstable() in
+	let count = ref 0 in
+	let helpercl elt =
+		add_update (AddObstacle(Cloud(!count,elt)));
+    Hashtbl.add obst !count (Cloud(!count,elt)); count := !count + 1 in
+	let helpersat elt =
+		add_update (AddObstacle(Satellite(!count,elt,cSATELLITE_HEALTH)));
+    Hashtbl.add obst !count (Satellite(!count,elt,cSATELLITE_HEALTH)); 
+	 count := !count + 1 in
+	List.iter helpercl cCLOUD_POSITIONS;
+  List.iter helpersat cSATELLITE_POSITIONS;	 
 	(create_wormtable(),
 		create_projtable(),
 		obst,
 		create_timer()) 
 
-		(* Team 0 = Red, Team 1 = Blue *)
+		(* Team 0 = Red, Team 1 = Blue --> DO WE WANT TO SIMPLIFY? *)
 let initWorms (wt,pt,ot,t) = 
 	let count = ref 1 in
 	let addWorm team =
@@ -109,7 +111,9 @@ let initWorms (wt,pt,ot,t) =
 			else (Random.float (cBOARD_WIDTH -. cBLUE_START)) +. cBLUE_START in
 		let ypos = yfinder xpos in
 		Hashtbl.add wt id (id,Basic, cBASIC_HEALTH, (xpos,ypos), 
-			(0.,0.),(0.,cGRAVITY), cBASIC_ATTACK_COOLDOWN,-1.0) in
+			(0.,0.),(0.,cGRAVITY), cBASIC_ATTACK_COOLDOWN,-1.0);
+		let color = if team = 0 then Red else Blue in
+		add_update (AddWorm(id,(xpos,ypos),cBASIC_HEALTH,color)); in
 	let rec wormCycle m team =
 		if m = cTEAM_SIZE
 		then ()
@@ -127,7 +131,7 @@ let startGame g =
  
 	
 let handleAction (wt,pt,ot,t) worm_id act c = 
-	(* NEED TO CHECK FOR GAME OVER *)
+	if t > cTIME_LIMIT then Control(GameEnd) else
 	let (_,wormtype,hlth,pos,vel,a,t1,t2) = Hashtbl.find wt worm_id in
   match act with
 		QueueShoot(v) ->
@@ -218,7 +222,7 @@ let handleAction (wt,pt,ot,t) worm_id act c =
 			Mutex.unlock promoLock;
 			Result(worm_id,Success))
 	| Talk(s) ->  
-		Netgraphics.add_update (DisplayString(c,s));
+		add_update (DisplayString(c,s));
 		Result(worm_id,Success)
 		
 	
@@ -255,18 +259,22 @@ let handleStatus (wt,pt,ot,t) status =
 		let obstacle_list = hash2list ot in
 		Data(GameData (redData,blueData,proj_list,obstacle_list,t))
 
-let handleTime (wt,pt,ot,t) newt = 
+let handleTime (wt,pt,ot,t) newt = (* how do we update the game time? *)
 	(* CHECK FOR GAME END *)
   if newt >= cTIME_LIMIT
 	then
-		Some (if score Red > score Blue then Winner Red
-			else if score Red < score Blue then Winner Blue else Tie)
+		let result = 
+			if score Red > score Blue then Winner Red
+				else if score Red < score Blue then Winner Blue else Tie in
+		add_update (GameOver(result));
+		Some result
 	else
 		let (r,b) = checkAlive wt in
-		if r = 0 then Some(Winner Blue) else
-		if b = 0 then Some(Winner Red) else
+		if r = 0 then (add_update (GameOver(Winner Blue)); Some(Winner Blue)) else
+		if b = 0 then (add_update (GameOver(Winner Red)); Some(Winner Red)) else
+		
 	(* HANDLE PROMOTIONS *)
-			let promo_helper id (id2,wormtype,h,p,v,a,t1,t2) = 
+			let promo_helper id (_,wormtype,h,p,v,a,t1,t2) = 
 				let next = t2 -. newt +. t in
 				if wormtype = Basic && next <= 0. 
 				then (*perform upgrade*)
@@ -274,7 +282,8 @@ let handleTime (wt,pt,ot,t) newt =
 					then let newwt = Hashtbl.find promotionTable id in
 						(Mutex.lock gameLock;
 						Hashtbl.replace wt id (id,newwt,h,p,v,a,t1,next);
-						Mutex.unlock gameLock;)
+						Mutex.unlock gameLock;
+						add_update (MorphWorm(id,newwt));)
 					else ()
 				else 
 					(Mutex.lock gameLock;
@@ -315,7 +324,8 @@ let handleTime (wt,pt,ot,t) newt =
 					Mutex.lock gameLock;
 					Hashtbl.replace wt id 
 						(id,wormtype,h,(newx,newy),(newspeed,0.),a,t1,t2);
-					Mutex.unlock gameLock; in	
+					Mutex.unlock gameLock;
+					add_update (MoveWorm(id,(newx,newy))); in	
 			Hashtbl.iter pos_helper wormWaypoints;
 			
 	(* PROJECTILE POSITIONS *)
@@ -341,26 +351,46 @@ let handleTime (wt,pt,ot,t) newt =
 				let newpy = py +. newvy *. (newt -. t) in
 				Mutex.lock gameLock;
 				Hashtbl.replace pt id (id,weapont,(newpx,newpy),(newvx,newvy),(newax,neway),projt);
-				Mutex.unlock gameLock in
+				Mutex.unlock gameLock;
+				add_update (MoveProjectile(id,(newpx,newpy))); in
 				
 			Hashtbl.iter proj_helper pt; 
 			
 	(*ADD PROJECTILES*)
-		(* SPECIAL CASE FOR MINES
-				they have no velocity or acceleration,
-				just check if position is within acceptable dist
-				from worm planting and reject or allow *)
 	
-			(*the problem is helper gets a list*)
 			 let proj_add_helper id proj_queue = 
-			   let proj_queue_helper (pid,weapont,p,(vxproj,vyproj),a,t) = 
+			   let proj_queue_helper (pid,weapont,(x,y),(vxproj,vyproj),a,t) = 
 			     let (wid,wormtype,h,(px,py),(vx,vy),(ax,ay),t1,t2) = 
 				     Hashtbl.find wt id in
-				   if t1 <= 0. then 
-							(*Will have to remove the proj from the queue*)
-						 (Mutex.lock gameLock;
-						  Hashtbl.add pt pid (pid,weapont,(px,py),(vx +. vxproj,vy +. vyproj),a,t);
-              Mutex.unlock gameLock;)						 
+				   if t1 <= 0. 
+					 then (
+						 Mutex.lock projLock;
+							let relList = Hashtbl.find futureProj wid in
+							Hashtbl.replace futureProj wid (List.tl relList);
+						  Mutex.unlock projLock;
+							if weapont = Mine &&
+								(Util.mag (x -. px,(yfinder x) -. py) >= cMINE_PLANT_DISTANCE)
+							then () (* mine planted outside proximity *)
+							else (
+								let cooldownt = 
+									match wormtype with
+										Basic -> cBASIC_ATTACK_COOLDOWN
+									| Grenader -> cGRENADER_COOLDOWN
+									| MissileBlaster -> cMISSILE_BLASTER_COOLDOWN
+									| Miner -> cMINER_COOLDOWN
+									| LazerGunner -> cLAZER_GUNNER_COOLDOWN
+									| PelletShooter -> cPELLET_SHOOTER_COOLDOWN in
+								Mutex.lock gameLock;
+								Hashtbl.add pt pid 
+									(pid,weapont,(px,py),(vx +. vxproj,vy +. vyproj),a,t);
+								Hashtbl.replace wt wid 
+									(wid,wormtype,h,(px,py),(vx,vy),(ax,ay),cooldownt,t2);
+								Mutex.unlock gameLock;
+								if weapont = Bat
+								then ()
+								else add_update (AddProjectile(pid,weapont,(px,py)));
+							)
+						)						 
            else ()	in
 			   List.iter proj_queue_helper proj_queue in 
 			
@@ -373,25 +403,32 @@ let handleTime (wt,pt,ot,t) newt =
 						Cloud(_,p) -> ()
 					| Satellite(_,(px,py),h) -> 
 						if (Util.mag (px -. x,py -. y)) <= (r +. cSATELLITE_SIZE)
-						then (* satellite hit! *)
-							(Mutex.lock gameLock;
-							Hashtbl.replace ot oID (Satellite(oID,(px,py),h - 1));
+						(* satellite hit! *)
+						then (
+							Mutex.lock gameLock;
+							(if h = 1 
+							then 
+								(Hashtbl.remove ot oID;
+								add_update (RemoveObstacle(oID));)
+							else Hashtbl.replace ot oID (Satellite(oID,(px,py),h - 1)));
 							Hashtbl.remove pt pID;
-							Mutex.unlock gameLock;)
+							Mutex.unlock gameLock;
+							add_update (RemoveProjectile(pID));
+						)
 						else () in
 						
 				Hashtbl.iter satCollision ot in
 				
-			(* the input "team" can be one of two things:
+			(* the input worm_id can be one of two things:
 					a) the weapon is a bat and it is a positive int if
-							the bat holder is red / negative int if blue
-							-In this case team * id <=0 (line 48ish) 
+							the bat holder is red / negative int if blue 
+							-In this case worm_id * id <=0 (line 48ish) 
 								if the worm hit and the worm hitting are on opposite teams
 					b) the weapon is not a bat and it is 0
-							-In this case, team * id = 0 always and thus
+							-In this case, worm_id * id = 0 always and thus
 								all worms in vicinity are hurt (friendly fire!) *)
 								
-			let explode x y weapont team projID = 
+			let explode x y weapont worm_id projID = 
 				let (r,dam) = 
 					match weapont with 
 						Bomb -> (cBOMB_EXPLOSION_RADIUS,cBOMB_DAMAGE)
@@ -413,7 +450,7 @@ let handleTime (wt,pt,ot,t) newt =
 						| LazerGunner -> cLAZER_GUNNER_RADIUS
 						) in
 					if (Util.mag (px -. x,py -. y) <= (r +. wormr)
-						&& (team * id <= 0 ))
+						&& (worm_id * id <= 0 ))
 					then (* hurt the worm *)
 						(Mutex.lock gameLock;
 						Hashtbl.replace wt id (id,wormtype,h - dam,(px,py),v,a,t1,t2);
@@ -424,21 +461,32 @@ let handleTime (wt,pt,ot,t) newt =
 				Mutex.lock gameLock;
 				Hashtbl.remove pt projID; (* remove projectile from active projs *)
 				Mutex.unlock gameLock;
+				(if weapont = Bat
+				then add_update(DoBat(worm_id)) 
+				else add_update(RemoveProjectile(projID)));
 				in
 	
 			let explodeHelper id (_,weapont,(px,py),(vx,vy),a,projt) =
+				let radius = 
+					(match weapont with 
+						Bomb -> cBOMB_SIZE
+					| Missile -> cMISSILE_SIZE
+					| Pellet -> cPELLET_SIZE
+					| Lazer -> cLAZER_SIZE
+					| Grenade -> cGRENADE_SIZE
+					| Mine -> cMINE_SIZE
+					| Bat -> 0.0) in
 				match weapont with
 					Bat -> (* just "explode" *) 
-						(* reminder that vx for a bat is the team (pos or neg) *)
+						(* reminder that vx for a bat is the worm_id (pos or neg) *)
 						explode px py weapont (int_of_float vx) id
-						
 				| (Grenade | Mine) -> (* explode if timer is up *)
 						(match projt with 
 								None -> failwith "timer of grenade/mine is None"
 							| Some (flt) ->
 								if flt -. newt +. t <= 0.
 								then explode px py weapont 0 id
-								else ())
+								else checkForSatellite px py radius id)
 				| _ -> (* explode if colliding *)
 						if (py <= (yfinder px))
 						then
@@ -454,23 +502,18 @@ let handleTime (wt,pt,ot,t) newt =
 									let (x,y) = lineInter l r (px,py) (px -. vx, py -. vy) in
 									explode x y weapont 0 id;)
 						else 
-							let radius = 
-								(match weapont with 
-									Bomb -> cBOMB_SIZE
-								| Missile -> cMISSILE_SIZE
-								| Pellet -> cPELLET_SIZE
-								| Lazer -> cLAZER_SIZE
-								| _ -> failwith "bad matching in explosion handler") in
 							checkForSatellite px py radius id in
 						
 			Hashtbl.iter explodeHelper pt;
 					
 	(*REMOVE DEAD OBJECTS*)
+		(* UPDATE SCORE AND SEND GUI UPDATE OF SCORE *)
 			let worm_remove_helper id (_,_,health,_,_,_,_,_) = 
 			  if health <= 0 then 
 				  (Mutex.lock gameLock;
 					 Hashtbl.remove wt id;
-					 Mutex.unlock gameLock;)
+					 Mutex.unlock gameLock;
+					 add_update (RemoveWorm(id));)
 				else () in
 				
 			Hashtbl.iter worm_remove_helper wt;
@@ -487,9 +530,3 @@ let handleTime (wt,pt,ot,t) newt =
       
 			Hashtbl.iter obstacle_remove_helper ot;
 			None
-				
-			
-				
-			
-			
-	
