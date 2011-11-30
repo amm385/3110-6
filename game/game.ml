@@ -7,7 +7,7 @@ open Constants
 type game = ((worm_id, worm_data) t * 
   (projectile_id, projectile_data) t * 
 	(obstacle_id, obstacle_data) t * 
-	(timer ref)) 
+	(timer)) 
 let gameLock = Mutex.create ()
 
 let projectile_id_counter = ref 0
@@ -42,6 +42,24 @@ let lineInter (x1,y1) (x2,y2) (x3,y3) (x4,y4) =
 	let x = (m1*.x1 -. m2*.x3 -. y1 +. y3) /. (m1 -. m2) in
 	let y = m1 *. (x -. x1) +. y1 in
 		(x,y)
+		
+let checkAlive tbl = 
+	let helper id (id2,wt,h,p,v,a,t1,t2) (r,b) = 
+		if id > 0 && h > 0 then (r+1,b) else
+		if id < 0 && h > 0 then (r,b+1) else 
+			(r,b) in
+	Hashtbl.fold helper tbl (0,0)
+	
+let score c =
+	failwith "poopy"
+	
+
+let inCloud x y = 
+  let helper acc (cx,cy) = 
+	  if Pervasives.sqrt((cx -. x) ** 2.0 +. (cy -. y) ** 2.0)  < cCLOUD_RADIUS
+		then acc || true
+		else acc || false in
+	List.fold_left helper false cCLOUD_POSITIONS 
 					
 		(* ACTUAL FUNCTIONS *)
 let initGame () : game = 
@@ -92,6 +110,7 @@ let startGame g =
  
 	
 let handleAction (wt,pt,ot,t) worm_id act c = 
+	(* NEED TO CHECK FOR GAME OVER *)
 	let (_,wormtype,hlth,pos,vel,a,t1,t2) = Hashtbl.find wt worm_id in
   match act with
 		QueueShoot(v) ->
@@ -119,13 +138,17 @@ let handleAction (wt,pt,ot,t) worm_id act c =
 					Mutex.unlock projLock;
 				Mutex.lock pidLock;
 				projectile_id_counter := !projectile_id_counter + 1;
-				Mutex.unlock pidLock)
-	| QueueMove(v) ->
-			(* set worms speed, vx *)
-			let relList = Hashtbl.find wormWaypoints worm_id in
-				Mutex.lock waypointLock;
-				Hashtbl.replace wormWaypoints worm_id (relList@[v]);
-				Mutex.unlock waypointLock
+				Mutex.unlock pidLock;
+				Result(worm_id,Success))
+	| QueueMove(vx,vy) ->
+			if vx < 0. || vx > cBOARD_WIDTH
+			then Result(worm_id,Failed)
+			else
+				let relList = Hashtbl.find wormWaypoints worm_id in
+					Mutex.lock waypointLock;
+					Hashtbl.replace wormWaypoints worm_id (relList@[(vx,vy)]);
+					Mutex.unlock waypointLock;
+					Result(worm_id,Success)
 	| QueueBat -> 
 			let p : projectile = 
 				(* Here we use vx to hide the team for friendly fire analysis 
@@ -143,18 +166,24 @@ let handleAction (wt,pt,ot,t) worm_id act c =
 				Mutex.unlock projLock;
 			Mutex.lock pidLock;
 			projectile_id_counter := !projectile_id_counter + 1;
-			Mutex.unlock pidLock
+			Mutex.unlock pidLock;
+			Result(worm_id,Success)
 	| ClearShoot -> 
 			Mutex.lock projLock;
 			Hashtbl.replace futureProj worm_id [];
 			Mutex.unlock projLock;
+			Result(worm_id,Success)
 	| ClearMove ->
 			Mutex.lock waypointLock;
 			Hashtbl.replace wormWaypoints worm_id [];
 			Mutex.unlock waypointLock;
-	| Promote(wormtype) -> 
+			Result(worm_id,Success)
+	| Promote(newwormtype) -> 
+		if not (wormtype = Basic)
+		then Result(worm_id,Failed)
+		else
 		let newt = 
-		 (match wormtype with 
+		 (match newwormtype with 
 				Grenader -> cGRENADE_PROMOTION_TIME
 			| MissileBlaster -> cMISSILE_PROMOTION_TIME
 			| Miner -> cMINER_PROMOTION_TIME
@@ -162,15 +191,19 @@ let handleAction (wt,pt,ot,t) worm_id act c =
 			| LazerGunner -> cLAZER_GUNNER_PROMOTION_TIME
 			| Basic -> failwith "Attempted to promote to basic??") in
 		Mutex.lock gameLock;
-		Hashtbl.replace wt worm_id (worm_id,wormtype,hlth,pos,vel,a,t1,newt);
+		Hashtbl.replace wt worm_id (worm_id,newwormtype,hlth,pos,vel,a,t1,newt);
 		Mutex.unlock gameLock;
 		if Hashtbl.mem promotionTable worm_id 
-		then () 
+		then Result(worm_id,Failed)
 		else 
-			Mutex.lock promoLock;
-			Hashtbl.add promotionTable worm_id wormtype;
+			(Mutex.lock promoLock;
+			Hashtbl.add promotionTable worm_id newwormtype;
 			Mutex.unlock promoLock;
-	| Talk(s) ->  Netgraphics.add_update (DisplayString(c,s))
+			Result(worm_id,Success))
+	| Talk(s) ->  
+		Netgraphics.add_update (DisplayString(c,s));
+		Result(worm_id,Success)
+		
 	
 let handleStatus g status = failwith "poop"
  (* match status with
@@ -179,24 +212,6 @@ let handleStatus g status = failwith "poop"
 	| TeamStatus(c) ->
 	| ObstacleStatus ->
 	| GameStatus ->*)
-
-let checkAlive tbl = 
-	let helper id (id2,wt,h,p,v,a,t1,t2) (r,b) = 
-		if id > 0 && h > 0 then (r+1,b) else
-		if id < 0 && h > 0 then (r,b+1) else 
-			(r,b) in
-	Hashtbl.fold helper tbl (0,0)
-	
-let score c =
-	failwith "poopy"
-	
-
-let inCloud x y = 
-  let helper acc (cx,cy) = 
-	  if Pervasives.sqrt((cx -. x) ** 2.0 +. (cy -. y) ** 2.0)  < cCLOUD_RADIUS
-		then acc || true
-		else acc || false in
-	List.fold_left helper false cCLOUD_POSITIONS 
 
 let handleTime (wt,pt,ot,t) newt = 
 	(* CHECK FOR GAME END *)
@@ -299,7 +314,7 @@ let handleTime (wt,pt,ot,t) newt =
 			   let proj_queue_helper (pid,weapont,p,(vxproj,vyproj),a,t) = 
 			     let (wid,wormtype,h,(px,py),(vx,vy),(ax,ay),t1,t2) = 
 				     Hashtbl.find wt id in
-				   if t1 <= 0 then 
+				   if t1 <= 0. then 
 							(*Will have to remove the proj from the queue*)
 						 (Mutex.lock gameLock;
 						  Hashtbl.add pt pid (pid,weapont,(px,py),(vx +. vxproj,vy +. vyproj),a,t);
@@ -428,7 +443,8 @@ let handleTime (wt,pt,ot,t) newt =
 					    Mutex.unlock gameLock;)
 				    else () in
       
-			Hashtbl.iter obstacle_remove_helper ot			
+			Hashtbl.iter obstacle_remove_helper ot;
+			None
 				
 			
 				
