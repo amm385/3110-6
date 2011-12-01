@@ -10,6 +10,8 @@ type game = ((worm_id, worm_data) t *
 	(timer)) 
 let gameLock = Mutex.create ()
 
+
+
 let projectile_id_counter = ref 0
 let pidLock = Mutex.create ()
 	(* type (wormId,vector list) t *)
@@ -24,6 +26,21 @@ let promoLock = Mutex.create()
 
 		(* HELPER FUNCTIONS *)
 (* Returns the y value on the map ground associated with xpos *)
+let hash2list hashtable = 
+  let helper id elt acc = 
+	  elt::acc in 
+	Hashtbl.fold helper hashtable [] 
+	
+let hash2listw c hashtable = 
+  let helper id (wid,wormt,h,p,v,a,t1,t2) acc = 
+	  let elt = (wid,wormt,h,p,v,a,t1,t2) in
+	  if  c = 1 then
+     if wid > 0 then elt::acc else acc
+    else
+     if wid < 0 then elt::acc else acc in		
+		 
+	Hashtbl.fold helper hashtable [] 
+
 let yfinder xpos = 
   let lineFinder ((x1,y1),(x2,y2),b) (x3,y3) = 
 		if b then ((x1,y1),(x2,y2),true) else 
@@ -205,13 +222,38 @@ let handleAction (wt,pt,ot,t) worm_id act c =
 		Result(worm_id,Success)
 		
 	
-let handleStatus g status = failwith "poop"
- (* match status with
-		WormStatus(id) -> 
-	| ProjectileStatus(d) ->
-	| TeamStatus(c) ->
-	| ObstacleStatus ->
-	| GameStatus ->*)
+let handleStatus (wt,pt,ot,t) status = 
+ match status with
+		WormStatus(id) -> if Hashtbl.mem wt id then
+  		 Data(WormData(Hashtbl.find wt id)) 
+			else 
+			 Error "Worm doesn't exist!" 
+	| ProjectileStatus(pid) -> if Hashtbl.mem pt pid then
+  		 Data(ProjectileData(Hashtbl.find pt pid)) 
+			else 
+			 Error "Projectile doesn't exist!" 
+	| TeamStatus(c) -> 
+	    let returnedWorms = ref [] in 
+			let worm_returner _ (wid,wormt,h,p,v,a,t1,t2) = 
+			   (match c with 
+				   Red -> if wid > 0 then 
+					   returnedWorms := (wid,wormt,h,p,v,a,t1,t2)::(!returnedWorms)
+						 else ()
+				|  Blue -> if wid < 0 then 
+					   returnedWorms := (wid,wormt,h,p,v,a,t1,t2)::(!returnedWorms)
+						 else () ) in
+				Hashtbl.iter worm_returner wt;
+        Data(TeamData (score c,!returnedWorms))
+	| ObstacleStatus -> 
+	  let obstacle_returner oid elt acc = 
+  		elt::acc in
+		Data(ObstacleData(Hashtbl.fold obstacle_returner ot [])) 
+	| GameStatus -> 
+	  let redData = (score Red, hash2listw 1 wt) in
+	  let blueData = (score Blue, hash2listw (-1) wt) in
+		let proj_list = hash2list pt in
+		let obstacle_list = hash2list ot in
+		Data(GameData (redData,blueData,proj_list,obstacle_list,t))
 
 let handleTime (wt,pt,ot,t) newt = 
 	(* CHECK FOR GAME END *)
