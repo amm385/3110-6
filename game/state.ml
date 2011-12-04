@@ -1,11 +1,10 @@
 open Constants
 open Definitions
 
-
 let create_wormtable () = Hashtbl.create (cNUM_TEAMS * cTEAM_SIZE)
 let create_projtable () = Hashtbl.create  (cNUM_TEAMS * cTEAM_SIZE)
-let create_obstable () = Hashtbl.create ((List.length cCLOUD_POSITIONS) + (List.length cSATELLITE_POSITIONS))
-(*let create_timer ():timer = ref Unix.gettimeofday() *)
+let create_obstable () = Hashtbl.create ((List.length cCLOUD_POSITIONS) + 
+	(List.length cSATELLITE_POSITIONS))
 
 (*first one is Red, second one is blue score*)
 (*protected by gameLock*)
@@ -69,7 +68,6 @@ let score c =
 	match c with 
     Red -> fst !scores
 	| Blue -> snd !scores
-	
 
 let inCloud x y = 
   let helper acc (cx,cy) = 
@@ -77,6 +75,34 @@ let inCloud x y =
 		then acc || true
 		else acc || false in
 	List.fold_left helper false cCLOUD_POSITIONS 
-  
-
- 
+	
+(* some worm info extractions *)
+	
+let getDrag weapont = 
+	match weapont with 
+		Bomb -> cBOMB_DRAG
+	| Grenade -> cGRENADE_DRAG
+	| Missile -> cMISSILE_DRAG
+	| Mine -> 0.0
+	| Pellet -> cPELLET_DRAG
+	| Lazer -> cLAZER_DRAG 
+	| Bat -> 0.0 
+	
+let getRadius weapont = 
+	match weapont with 
+		Bomb -> cBOMB_EXPLOSION_RADIUS
+	|	Grenade -> cGRENADE_EXPLOSION_RADIUS
+	| Missile -> cMISSILE_EXPLOSION_RADIUS
+	| Mine -> cMINE_EXPLOSION_RADIUS
+	| Pellet -> cPELLET_EXPLOSION_RADIUS
+	| Lazer -> cLAZER_EXPLOSION_RADIUS
+	| Bat -> cBAT_LENGTH
+	
+let getSpeed wormtype = 
+	match wormtype with
+		Basic -> cBASIC_SPEED
+	| Grenader -> cGRENADER_SPEED
+	| MissileBlaster -> cMISSILE_BLASTER_SPEED
+	| Miner -> cMINER_SPEED
+	| PelletShooter -> cPELLET_SHOOTER_SPEED
+	| LazerGunner -> cLAZER_GUNNER_SPEED 

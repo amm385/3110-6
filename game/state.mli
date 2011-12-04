@@ -24,3 +24,7 @@ val lineInter: (float*float) -> (float*float) -> (float*float) ->
 val checkAlive: (worm_id,worm_data) Hashtbl.t -> (int*int)
 val score: color -> int
 val inCloud: float -> float -> bool 
+
+val getDrag: weapon_type -> float
+val getRadius: weapon_type -> float
+val getSpeed: worm_type -> float

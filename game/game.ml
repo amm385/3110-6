@@ -290,8 +290,12 @@ let handleTime (wt,pt,ot,t,startedtime) newt = (* how do we update the game time
 				let newvy = vy +. neway *. (newt -. !t) in
 			  let newpx = px +. newvx *. (newt -. !t) in
 				let newpy = py +. newvy *. (newt -. !t) in
+				
 				Mutex.lock gameLock;
-				Hashtbl.replace pt id (id,weapont,(newpx,newpy),(newvx,newvy),(newax,neway),projt);
+				if newpx < 0.0 || newpx > cBOARD_WIDTH
+				then Hashtbl.remove pt id
+				else Hashtbl.replace pt id 
+					(id,weapont,(newpx,newpy),(newvx,newvy),(newax,neway),projt);
 				Mutex.unlock gameLock;
 				add_update (MoveProjectile(id,(newpx,newpy))); in
 				
