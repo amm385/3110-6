@@ -47,7 +47,11 @@ let yfinder xpos =
 	let calcY (x1,y1) (x2,y2) =
 		let m = (y2 -. y1) /. (x2 -. x1) in
   		m *. (xpos -. x1) +. y1 in
-	let (l,r,_) = List.fold_left lineFinder ((0.,0.),(0.,0.),false) cBOARD in
+	let (l,r,_) =
+    match cBOARD with
+      h::t ->
+        List.fold_left lineFinder (h,h,false) t 
+    | _ -> failwith "board is all funky" in
 	  calcY l r 
 		
 let lineInter (x1,y1) (x2,y2) (x3,y3) (x4,y4) =
@@ -77,6 +81,15 @@ let inCloud x y =
 	List.fold_left helper false cCLOUD_POSITIONS 
 	
 (* some worm info extractions *)
+	
+let getCooldown wormtype = 
+	match wormtype with
+		Basic -> cBASIC_ATTACK_COOLDOWN
+	| Grenader -> cGRENADER_COOLDOWN
+	| MissileBlaster -> cMISSILE_BLASTER_COOLDOWN
+	| Miner -> cMINER_COOLDOWN
+	| LazerGunner -> cLAZER_GUNNER_COOLDOWN
+	| PelletShooter -> cPELLET_SHOOTER_COOLDOWN
 	
 let getDrag weapont = 
 	match weapont with 

@@ -11,7 +11,7 @@ type game = ((worm_id, worm_data) t *
 	(timer ref) * (timer ref) )
 let gameLock = Mutex.create ()
 					
-		(* ACTUAL FUNCTIONS *)
+
 let initGame () : game = 
 	send_update (InitGraphics(cBOARD));
   let obst = create_obstable() in
@@ -30,6 +30,11 @@ let initGame () : game =
 		obst,
 		ref 0.0,ref 0.0) 
 
+		
+		
+		
+		
+		
 let initWorms (wt,pt,ot,t,starttime) = 
 	let count = ref 1 in
 	let addWorm team =
@@ -44,7 +49,7 @@ let initWorms (wt,pt,ot,t,starttime) =
 			else (Random.float (cBOARD_WIDTH -. cBLUE_START)) +. cBLUE_START in
 		let ypos = yfinder xpos in
 		Hashtbl.add wt id (id,Basic, cBASIC_HEALTH, (xpos,ypos), 
-			(0.,0.),(0.,cGRAVITY), cBASIC_ATTACK_COOLDOWN,-1.0);
+			(0.,0.),(0.,cGRAVITY), 0.0,-1.0);
 		add_update (AddWorm(id,(xpos,ypos),cBASIC_HEALTH,team)); in
 	let rec wormCycle m (team : color) : unit =
 		if m = cTEAM_SIZE
@@ -54,19 +59,25 @@ let initWorms (wt,pt,ot,t,starttime) =
 	count := 1; 
 	wormCycle 0 Blue
   
+	
+	
+	
+	
 let startGame (wt,pt,ot,t,stime) = 
-  Netgraphics.send_update (InitGraphics(cBOARD));
 	let startTime = Unix.gettimeofday() in
 	t := startTime;
   stime := startTime 	
 	
-let handleAction (wt,pt,ot,(t:timer ref),(starttime:timer ref)) worm_id act c = 
 	
+	
+	
+	
+	
+let handleAction (wt,pt,ot,(t:timer ref),(starttime:timer ref)) worm_id act c = 
 	if !t > (!starttime +. cTIME_LIMIT) then (print_endline "over"; Control(GameEnd)) else
 	let (_,wormtype,hlth,pos,vel,a,t1,t2) = Hashtbl.find wt worm_id in
   match act with
 		QueueShoot(v) ->
-			print_endline "shoot";
 		  let (weapon,timer,projv,projpos,maxv) = 
 				(match wormtype with
 					Basic -> (Bomb,None,v,pos,cMAX_BOMB_MAGNITUDE)
@@ -84,31 +95,31 @@ let handleAction (wt,pt,ot,(t:timer ref),(starttime:timer ref)) worm_id act c =
 			let accel = (0.,0.) in
 			let p : projectile = 
 				(!projectile_id_counter,weapon,projpos,projv,accel,timer) in
-				(try 
-					let relList = Hashtbl.find futureProj worm_id in
-						Mutex.lock projLock;
-						Hashtbl.replace futureProj worm_id (relList@[p]);
-						Mutex.unlock projLock;
-				with Not_found -> 
-					Mutex.lock projLock;
-					Hashtbl.add futureProj worm_id [p]);
-					Mutex.unlock projLock;
+				let relList = 
+					if Hashtbl.mem futureProj worm_id
+					then Hashtbl.find futureProj worm_id
+					else [] in
+				Mutex.lock projLock;
+				Hashtbl.replace futureProj worm_id (relList@[p]);
+				Mutex.unlock projLock;
 				Mutex.lock pidLock;
 				projectile_id_counter := !projectile_id_counter + 1;
 				Mutex.unlock pidLock;
 				Result(worm_id,Success)
 	| QueueMove(vx,vy) ->
-			print_endline "move";
 			if vx < 0. || vx > cBOARD_WIDTH
-			then Result(worm_id,Failed)
+			then 
+				Result(worm_id,Failed)
 			else
-				let relList = Hashtbl.find wormWaypoints worm_id in
-					Mutex.lock waypointLock;
-					Hashtbl.replace wormWaypoints worm_id (relList@[(vx,vy)]);
-					Mutex.unlock waypointLock;
-					Result(worm_id,Success)
+				let relList =
+					(if Hashtbl.mem wormWaypoints worm_id
+					then Hashtbl.find wormWaypoints worm_id
+					else []) in
+				Mutex.lock waypointLock;
+				Hashtbl.replace wormWaypoints worm_id (relList@[(vx,vy)]);
+				Mutex.unlock waypointLock;
+				Result(worm_id,Success)
 	| QueueBat -> 
-			print_endline "bat";
 			let p : projectile = 
 				(* Here we use vx to hide the team for friendly fire analysis 
 						note, vx is otherwise useless *)
@@ -128,19 +139,16 @@ let handleAction (wt,pt,ot,(t:timer ref),(starttime:timer ref)) worm_id act c =
 			Mutex.unlock pidLock;
 			Result(worm_id,Success)
 	| ClearShoot -> 
-			print_endline "clearshoot";
 			Mutex.lock projLock;
 			Hashtbl.replace futureProj worm_id [];
 			Mutex.unlock projLock;
 			Result(worm_id,Success)
 	| ClearMove ->
-			print_endline "clearmove";
 			Mutex.lock waypointLock;
 			Hashtbl.replace wormWaypoints worm_id [];
 			Mutex.unlock waypointLock;
 			Result(worm_id,Success)
 	| Promote(newwormtype) -> 
-		print_endline "promote";
 		if not (wormtype = Basic)
 		then Result(worm_id,Failed)
 		else
@@ -163,10 +171,11 @@ let handleAction (wt,pt,ot,(t:timer ref),(starttime:timer ref)) worm_id act c =
 			Mutex.unlock promoLock;
 			Result(worm_id,Success))
 	| Talk(s) ->  
-		print_endline "talk";
 		add_update (DisplayString(c,s));
 		Result(worm_id,Success)
 		
+	
+	
 	
 let handleStatus (wt,pt,ot,(t:timer ref),(starttime:timer ref)) status = 
  match status with
@@ -200,6 +209,12 @@ let handleStatus (wt,pt,ot,(t:timer ref),(starttime:timer ref)) status =
 		let proj_list = hash2list pt in
 		let obstacle_list = hash2list ot in
 		Data(GameData (redData,blueData,proj_list,obstacle_list,!t))
+
+		
+
+let testbool = ref true		
+		
+		
 
 let handleTime (wt,pt,ot,t,startedtime) newt = (* how do we update the game time? *)
 	(* CHECK FOR GAME END *)
@@ -239,15 +254,7 @@ let handleTime (wt,pt,ot,t,startedtime) newt = (* how do we update the game time
 					[] -> ()
 				| (hx,hy)::tl -> 
 					let (id2,wormtype,h,(px,py),v,a,t1,t2) = Hashtbl.find wt id in
-					let speedtype = 
-					  (match wormtype with 
-						   Basic -> cBASIC_SPEED
-						 | Grenader -> cGRENADER_SPEED
-						 | MissileBlaster -> cMISSILE_BLASTER_SPEED
-						 | Miner -> cMINER_SPEED
-						 | PelletShooter -> cPELLET_SHOOTER_SPEED
-						 | LazerGunner ->  cLAZER_GUNNER_SPEED
-					  ) in  
+					let speedtype = getSpeed wormtype in  
 					let speed = if hx >= px then speedtype else -.speedtype in
 					let newx = px +. (newt -. !t)*.speed in
 					let finalx = 
@@ -269,7 +276,7 @@ let handleTime (wt,pt,ot,t,startedtime) newt = (* how do we update the game time
 					Mutex.unlock gameLock;
 					add_update (MoveWorm(id,(newx,newy))); in	
 			Hashtbl.iter pos_helper wormWaypoints;
-			
+	
 	(* PROJECTILE POSITIONS *)
 			let proj_helper id (_,weapont,(px,py),(vx,vy),(ax,ay),projt) = 
 				  let rawdrag = 
@@ -292,50 +299,51 @@ let handleTime (wt,pt,ot,t,startedtime) newt = (* how do we update the game time
 				let newpy = py +. newvy *. (newt -. !t) in
 				
 				Mutex.lock gameLock;
-				if newpx < 0.0 || newpx > cBOARD_WIDTH
+				(if newpx < 0.0 || newpx > cBOARD_WIDTH
 				then Hashtbl.remove pt id
-				else Hashtbl.replace pt id 
-					(id,weapont,(newpx,newpy),(newvx,newvy),(newax,neway),projt);
+				else (Hashtbl.replace pt id 
+					(id,weapont,(newpx,newpy),(newvx,newvy),(newax,neway),projt)));
 				Mutex.unlock gameLock;
 				add_update (MoveProjectile(id,(newpx,newpy))); in
 				
-			Hashtbl.iter proj_helper pt; 
+			Hashtbl.iter proj_helper pt;
+			
+	(* UPDATE COOLDOWN TIMES *)
+			let cooldownUpdater id (_,wormtype,h,p,v,a,t1,t2) =
+				let newt1 = t1 -. newt +. !t in
+				Mutex.lock gameLock;
+				Hashtbl.replace wt id (id,wormtype,h,p,v,a,newt1,t2);
+				Mutex.unlock gameLock; in
+			Hashtbl.iter cooldownUpdater wt;
 			
 	(*ADD PROJECTILES*)
 			 let proj_add_helper id proj_queue = 
 			   let proj_queue_helper (pid,weapont,(x,y),(vxproj,vyproj),a,t) = 
-			     let (wid,wormtype,h,(px,py),(vx,vy),(ax,ay),t1,t2) = 
+					 let (wid,wormtype,h,(px,py),(vx,vy),(ax,ay),t1,t2) = 
 				     Hashtbl.find wt id in
 				   if t1 <= 0. 
 					 then (
 						 Mutex.lock projLock;
-							let relList = Hashtbl.find futureProj wid in
+						 let relList = Hashtbl.find futureProj wid in
 							Hashtbl.replace futureProj wid (List.tl relList);
 						  Mutex.unlock projLock;
-							if weapont = Mine &&
+							(if weapont = Mine &&
 								(Util.mag (x -. px,(yfinder x) -. py) >= cMINE_PLANT_DISTANCE)
 							then () (* mine planted outside proximity *)
 							else (
-								let cooldownt = 
-									match wormtype with
-										Basic -> cBASIC_ATTACK_COOLDOWN
-									| Grenader -> cGRENADER_COOLDOWN
-									| MissileBlaster -> cMISSILE_BLASTER_COOLDOWN
-									| Miner -> cMINER_COOLDOWN
-									| LazerGunner -> cLAZER_GUNNER_COOLDOWN
-									| PelletShooter -> cPELLET_SHOOTER_COOLDOWN in
+								let cooldownt = getCooldown wormtype in
 								Mutex.lock gameLock;
 								Hashtbl.add pt pid 
 									(pid,weapont,(px,py),(vx +. vxproj,vy +. vyproj),a,t);
 								Hashtbl.replace wt wid 
 									(wid,wormtype,h,(px,py),(vx,vy),(ax,ay),cooldownt,t2);
 								Mutex.unlock gameLock;
-								if weapont = Bat
+								(if weapont = Bat
 								then ()
-								else add_update (AddProjectile(pid,weapont,(px,py)));
-							)
+								else add_update (AddProjectile(pid,weapont,(px,py))));
+							));
 						)						 
-           else ()	in
+           else () in
 			   List.iter proj_queue_helper proj_queue in 
 			
 			Hashtbl.iter proj_add_helper futureProj;
@@ -472,6 +480,9 @@ let handleTime (wt,pt,ot,t,startedtime) newt = (* how do we update the game time
 						);
 					 Hashtbl.remove wt id;
 					 Mutex.unlock gameLock;
+					 print_endline "removing worm";
+					 print_endline (string_of_int id);
+					 print_endline (string_of_int health);
 					 add_update (RemoveWorm(id));)
 				else () in
 				

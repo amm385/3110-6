@@ -25,6 +25,7 @@ val checkAlive: (worm_id,worm_data) Hashtbl.t -> (int*int)
 val score: color -> int
 val inCloud: float -> float -> bool 
 
+val getCooldown: worm_type -> float
 val getDrag: weapon_type -> float
 val getRadius: weapon_type -> float
-val getSpeed: worm_type -> float
+val getSpeed: worm_type -> float 
