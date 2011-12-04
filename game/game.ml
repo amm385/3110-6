@@ -319,8 +319,10 @@ let handleTime (wt,pt,ot,t,startedtime) newt = (* how do we update the game time
 	(*ADD PROJECTILES*)
 			 let proj_add_helper id proj_queue = 
 			   let proj_queue_helper (pid,weapont,(x,y),(vxproj,vyproj),a,t) = 
+					 print_endline "pre";
 					 let (wid,wormtype,h,(px,py),(vx,vy),(ax,ay),t1,t2) = 
 				     Hashtbl.find wt id in
+					 let _ = print_endline "post" in
 				   if t1 <= 0. 
 					 then (
 						 Mutex.lock projLock;
@@ -406,6 +408,7 @@ let handleTime (wt,pt,ot,t,startedtime) newt = (* how do we update the game time
 					then (* hurt the worm *)
 						(Mutex.lock gameLock;
 						Hashtbl.replace wt id (id,wormtype,h - dam,(px,py),v,a,t1,t2);
+						print_endline (string_of_int (h - dam));
 						Mutex.unlock gameLock;)
 					else () in
 				
@@ -419,15 +422,7 @@ let handleTime (wt,pt,ot,t,startedtime) newt = (* how do we update the game time
 				in
 	
 			let explodeHelper id (_,weapont,(px,py),(vx,vy),a,projt) =
-				let radius = 
-					(match weapont with 
-						Bomb -> cBOMB_SIZE
-					| Missile -> cMISSILE_SIZE
-					| Pellet -> cPELLET_SIZE
-					| Lazer -> cLAZER_SIZE
-					| Grenade -> cGRENADE_SIZE
-					| Mine -> cMINE_SIZE
-					| Bat -> 0.0) in
+				let radius = getRadius weapont in
 				match weapont with
 					Bat -> (* just "explode" *) 
 						(* reminder that vx for a bat is the worm_id (pos or neg) *)
@@ -463,27 +458,24 @@ let handleTime (wt,pt,ot,t,startedtime) newt = (* how do we update the game time
 			let worm_remove_helper id (_,_,health,_,_,_,_,_) = 
 			  if health <= 0 then 
 				  (Mutex.lock gameLock;
+					print_endline "killing!";
 					let (wiid,wormt,_,_,_,_,_,_) = Hashtbl.find wt id in
-					 let (rscore,bscore) = !scores in
-					 let addScore identity amount = 
-					   if identity < 0 then 
-							    scores := (rscore + amount,bscore) 
-								else
-								  scores := (rscore,bscore  + amount) in
-					 (match wormt with 
-					    Basic -> addScore id cBASIC_KILL_SCORE
-						| Grenader -> addScore id cGRENADER_KILL_SCORE
-						| MissileBlaster -> addScore id cMISSILE_KILL_SCORE
-						| Miner -> addScore id cMINER_KILL_SCORE
-						| PelletShooter -> addScore id cPELLET_KILL_SCORE
-						| LazerGunner -> addScore id cLAZER_KILL_SCORE
-						);
-					 Hashtbl.remove wt id;
-					 Mutex.unlock gameLock;
-					 print_endline "removing worm";
-					 print_endline (string_of_int id);
-					 print_endline (string_of_int health);
-					 add_update (RemoveWorm(id));)
+					let (rscore,bscore) = !scores in
+					let addScore identity amount = 
+					  if identity < 0 
+						then scores := (rscore + amount,bscore) 
+						else scores := (rscore,bscore  + amount) in
+					(match wormt with 
+					   Basic -> addScore id cBASIC_KILL_SCORE
+					| Grenader -> addScore id cGRENADER_KILL_SCORE
+					| MissileBlaster -> addScore id cMISSILE_KILL_SCORE
+					| Miner -> addScore id cMINER_KILL_SCORE
+					| PelletShooter -> addScore id cPELLET_KILL_SCORE
+					| LazerGunner -> addScore id cLAZER_KILL_SCORE
+					);
+					Hashtbl.remove wt id;
+					Mutex.unlock gameLock;
+					add_update (RemoveWorm(id));)
 				else () in
 				
 			Hashtbl.iter worm_remove_helper wt;
