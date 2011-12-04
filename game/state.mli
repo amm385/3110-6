@@ -27,5 +27,6 @@ val inCloud: float -> float -> bool
 
 val getCooldown: worm_type -> float
 val getDrag: weapon_type -> float
+val getHealth: worm_type -> int
 val getRadius: weapon_type -> float
 val getSpeed: worm_type -> float 

@@ -43,7 +43,7 @@ let yfinder xpos =
 		if b then ((x1,y1),(x2,y2),true) else 
 			(if x2 <= xpos && x3 >= xpos
 			then ((x2,y2),(x3,y3),true)
-			else ((x2,y2),(x2,y2),false)) in
+			else ((x2,y2),(x3,y3),false)) in
 	let calcY (x1,y1) (x2,y2) =
 		let m = (y2 -. y1) /. (x2 -. x1) in
   		m *. (xpos -. x1) +. y1 in
@@ -101,6 +101,15 @@ let getDrag weapont =
 	| Lazer -> cLAZER_DRAG 
 	| Bat -> 0.0 
 	
+let getHealth wormtype = 
+  match wormtype with 
+	  Basic -> cBASIC_HEALTH
+	| Grenader -> cGRENADER_HEALTH
+ 	|	MissileBlaster -> cMISSILE_BLASTER_HEALTH
+	|	Miner -> cMINER_HEALTH
+	|	PelletShooter -> cPELLET_SHOOTER_HEALTH
+	|	LazerGunner -> cLAZER_GUNNER_HEALTH
+	
 let getRadius weapont = 
 	match weapont with 
 		Bomb -> cBOMB_EXPLOSION_RADIUS
@@ -119,13 +128,4 @@ let getSpeed wormtype =
 	| Miner -> cMINER_SPEED
 	| PelletShooter -> cPELLET_SHOOTER_SPEED
 	| LazerGunner -> cLAZER_GUNNER_SPEED 
-	
-let getHealth wormtype = 
-  match wormtype with 
-	  Basic -> cBASIC_HEALTH
-	| Grenader -> cGRENADER_HEALTH
- 	|	MissileBlaster -> cMISSILE_BLASTER_HEALTH
-	|	Miner -> cMINER_HEALTH
-	|	PelletShooter -> cPELLET_SHOOTER_HEALTH
-	|	LazerGunner -> cLAZER_GUNNER_HEALTH
 		

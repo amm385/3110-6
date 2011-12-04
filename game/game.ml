@@ -74,7 +74,7 @@ let startGame (wt,pt,ot,t,stime) =
 	
 	
 let handleAction (wt,pt,ot,(t:timer ref),(starttime:timer ref)) worm_id act c = 
-	if !t > (!starttime +. cTIME_LIMIT) then (print_endline "over"; Control(GameEnd)) else
+	if !t > (!starttime +. cTIME_LIMIT) then (Control(GameEnd)) else
 	let (_,wormtype,hlth,pos,vel,a,t1,t2) = Hashtbl.find wt worm_id in
   match act with
 		QueueShoot(v) ->
@@ -209,14 +209,12 @@ let handleStatus (wt,pt,ot,(t:timer ref),(starttime:timer ref)) status =
 		let proj_list = hash2list pt in
 		let obstacle_list = hash2list ot in
 		Data(GameData (redData,blueData,proj_list,obstacle_list,!t))
-
 		
-
-let testbool = ref true		
+		
 		
 		
 
-let handleTime (wt,pt,ot,t,startedtime) newt = (* how do we update the game time? *)
+let handleTime (wt,pt,ot,t,startedtime) newt = 
 	(* CHECK FOR GAME END *)
   if newt -. !startedtime >= cTIME_LIMIT
 	then
@@ -238,8 +236,10 @@ let handleTime (wt,pt,ot,t,startedtime) newt = (* how do we update the game time
 					if Hashtbl.mem promotionTable id
 					then let newwt = Hashtbl.find promotionTable id in
 						(Mutex.lock gameLock;
-						let ratio = (float_of_int h) /. (1.) in
-						let newHealth = int_of_float((1.) *. ratio) in
+						let ratio = 
+							(float_of_int h) /. (float_of_int(getHealth wormtype)) in
+						let newHealth = 
+							int_of_float((float_of_int(getHealth newwt) *. ratio)) in
 						Hashtbl.replace wt id (id,newwt,newHealth,p,v,a,t1,next);
 						Mutex.unlock gameLock;
 						add_update (MorphWorm(id,newwt));)
@@ -302,11 +302,16 @@ let handleTime (wt,pt,ot,t,startedtime) newt = (* how do we update the game time
 				
 				Mutex.lock gameLock;
 				(if newpx < 0.0 || newpx > cBOARD_WIDTH
-				then Hashtbl.remove pt id
-				else (Hashtbl.replace pt id 
-					(id,weapont,(newpx,newpy),(newvx,newvy),(newax,neway),projt)));
-				Mutex.unlock gameLock;
-				add_update (MoveProjectile(id,(newpx,newpy))); in
+				then (
+					Hashtbl.remove pt id;
+					add_update (RemoveProjectile(id))
+				)
+				else (
+					Hashtbl.replace pt id 
+						(id,weapont,(newpx,newpy),(newvx,newvy),(newax,neway),projt);
+					add_update (MoveProjectile(id,(newpx,newpy)));
+				));
+				Mutex.unlock gameLock; in
 				
 			Hashtbl.iter proj_helper pt;
 			
@@ -321,10 +326,8 @@ let handleTime (wt,pt,ot,t,startedtime) newt = (* how do we update the game time
 	(*ADD PROJECTILES*)
 			 let proj_add_helper id proj_queue = 
 			   let proj_queue_helper (pid,weapont,(x,y),(vxproj,vyproj),a,t) = 
-					 print_endline "pre";
 					 let (wid,wormtype,h,(px,py),(vx,vy),(ax,ay),t1,t2) = 
 				     Hashtbl.find wt id in
-					 let _ = print_endline "post" in
 				   if t1 <= 0. 
 					 then (
 						 Mutex.lock projLock;
@@ -344,7 +347,9 @@ let handleTime (wt,pt,ot,t,startedtime) newt = (* how do we update the game time
 								Mutex.unlock gameLock;
 								(if weapont = Bat
 								then ()
-								else add_update (AddProjectile(pid,weapont,(px,py))));
+								else (
+								add_update (AddProjectile(pid,weapont,(px,py)));								
+								));
 							));
 						)						 
            else () in
@@ -410,7 +415,6 @@ let handleTime (wt,pt,ot,t,startedtime) newt = (* how do we update the game time
 					then (* hurt the worm *)
 						(Mutex.lock gameLock;
 						Hashtbl.replace wt id (id,wormtype,h - dam,(px,py),v,a,t1,t2);
-						print_endline (string_of_int (h - dam));
 						Mutex.unlock gameLock;)
 					else () in
 				
@@ -437,7 +441,7 @@ let handleTime (wt,pt,ot,t,startedtime) newt = (* how do we update the game time
 								then explode px py weapont 0 id
 								else checkForSatellite px py radius id)
 				| _ -> (* explode if colliding *)
-						if (py <= (yfinder px))
+						if (py < (yfinder px))
 						then
 							(match cBOARD with
 								[] -> failwith "thar be an empty board!"
@@ -460,7 +464,6 @@ let handleTime (wt,pt,ot,t,startedtime) newt = (* how do we update the game time
 			let worm_remove_helper id (_,_,health,_,_,_,_,_) = 
 			  if health <= 0 then 
 				  (Mutex.lock gameLock;
-					print_endline "killing!";
 					let (wiid,wormt,_,_,_,_,_,_) = Hashtbl.find wt id in
 					let (rscore,bscore) = !scores in
 					let addScore identity amount = 
@@ -477,6 +480,17 @@ let handleTime (wt,pt,ot,t,startedtime) newt = (* how do we update the game time
 					);
 					Hashtbl.remove wt id;
 					Mutex.unlock gameLock;
+					
+					Mutex.lock waypointLock;
+					Hashtbl.remove wormWaypoints id;
+					Mutex.unlock waypointLock;
+					Mutex.lock projLock;
+					Hashtbl.remove futureProj id;
+					Mutex.unlock projLock;
+					Mutex.lock promoLock;
+					Hashtbl.remove promotionTable id;
+					Mutex.unlock promoLock;
+					
 					add_update (RemoveWorm(id));)
 				else () in
 				
