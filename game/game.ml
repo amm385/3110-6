@@ -238,7 +238,9 @@ let handleTime (wt,pt,ot,t,startedtime) newt = (* how do we update the game time
 					if Hashtbl.mem promotionTable id
 					then let newwt = Hashtbl.find promotionTable id in
 						(Mutex.lock gameLock;
-						Hashtbl.replace wt id (id,newwt,h,p,v,a,t1,next);
+						let ratio = (float_of_int h) /. (1.) in
+						let newHealth = int_of_float((1.) *. ratio) in
+						Hashtbl.replace wt id (id,newwt,newHealth,p,v,a,t1,next);
 						Mutex.unlock gameLock;
 						add_update (MorphWorm(id,newwt));)
 					else ()

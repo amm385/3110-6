@@ -119,3 +119,13 @@ let getSpeed wormtype =
 	| Miner -> cMINER_SPEED
 	| PelletShooter -> cPELLET_SHOOTER_SPEED
 	| LazerGunner -> cLAZER_GUNNER_SPEED 
+	
+let getHealth wormtype = 
+  match wormtype with 
+	  Basic -> cBASIC_HEALTH
+	| Grenader -> cGRENADER_HEALTH
+ 	|	MissileBlaster -> cMISSILE_BLASTER_HEALTH
+	|	Miner -> cMINER_HEALTH
+	|	PelletShooter -> cPELLET_SHOOTER_HEALTH
+	|	LazerGunner -> cLAZER_GUNNER_HEALTH
+		
