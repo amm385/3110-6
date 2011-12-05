@@ -161,7 +161,7 @@ let handleAction (wt,pt,ot,(t:timer ref),(starttime:timer ref)) worm_id act c =
 			| LazerGunner -> cLAZER_GUNNER_PROMOTION_TIME
 			| Basic -> failwith "Attempted to promote to basic??") in
 		Mutex.lock gameLock;
-		Hashtbl.replace wt worm_id (worm_id,newwormtype,hlth,pos,vel,a,t1,newt);
+		Hashtbl.replace wt worm_id (worm_id,wormtype,hlth,pos,vel,a,t1,newt);
 		Mutex.unlock gameLock;
 		if Hashtbl.mem promotionTable worm_id 
 		then Result(worm_id,Failed)
@@ -415,7 +415,8 @@ let handleTime (wt,pt,ot,t,startedtime) newt =
 					then (* hurt the worm *)
 						(Mutex.lock gameLock;
 						Hashtbl.replace wt id (id,wormtype,h - dam,(px,py),v,a,t1,t2);
-						Mutex.unlock gameLock;)
+						Mutex.unlock gameLock;
+						add_update(UpdateWorm(id,h-dam)))
 					else () in
 				
 				Hashtbl.iter hurter wt;
@@ -456,8 +457,16 @@ let handleTime (wt,pt,ot,t,startedtime) newt =
 									explode x y weapont 0 id;)
 						else 
 							checkForSatellite px py radius id in
-						
+			(*if a mine is on the ground, it's velocity and acceleration 
+			  should become 0*)
+			let mineHelper id (iden, weapont,p,_,_,t) = 
+        if weapont = Grenade then 
+				  Hashtbl.replace pt id (iden, weapont,p,(0.,0.),(0.,0.),t)
+        else () in					
 			Hashtbl.iter explodeHelper pt;
+			
+			Hashtbl.iter mineHelper pt; 
+			
 					
 	(*REMOVE DEAD OBJECTS*)
 		(* UPDATE SCORE AND SEND GUI UPDATE OF SCORE *)
@@ -466,18 +475,16 @@ let handleTime (wt,pt,ot,t,startedtime) newt =
 				  (Mutex.lock gameLock;
 					let (wiid,wormt,_,_,_,_,_,_) = Hashtbl.find wt id in
 					let (rscore,bscore) = !scores in
-					let addScore identity amount = 
+					let addScore identity amount =  
 					  if identity < 0 
 						then scores := (rscore + amount,bscore) 
 						else scores := (rscore,bscore  + amount) in
-					(match wormt with 
-					   Basic -> addScore id cBASIC_KILL_SCORE
-					| Grenader -> addScore id cGRENADER_KILL_SCORE
-					| MissileBlaster -> addScore id cMISSILE_KILL_SCORE
-					| Miner -> addScore id cMINER_KILL_SCORE
-					| PelletShooter -> addScore id cPELLET_KILL_SCORE
-					| LazerGunner -> addScore id cLAZER_KILL_SCORE
-					);
+					let killScore = getKillScore wormt in
+					addScore id killScore;
+					let team = if id < 0 then Red else Blue in
+					print_endline (string_of_int (score Red));
+					print_endline (string_of_int (score Blue));
+					add_update(UpdateScore (team,score team));
 					Hashtbl.remove wt id;
 					Mutex.unlock gameLock;
 					

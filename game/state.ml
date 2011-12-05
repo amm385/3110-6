@@ -127,5 +127,14 @@ let getSpeed wormtype =
 	| MissileBlaster -> cMISSILE_BLASTER_SPEED
 	| Miner -> cMINER_SPEED
 	| PelletShooter -> cPELLET_SHOOTER_SPEED
-	| LazerGunner -> cLAZER_GUNNER_SPEED 
+	| LazerGunner -> cLAZER_GUNNER_SPEED
+
+let getKillScore wormtype =
+  match wormtype with
+    Basic -> cBASIC_KILL_SCORE
+  | Grenader -> cGRENADER_KILL_SCORE
+  | MissileBlaster -> cMISSILE_KILL_SCORE
+  | Miner -> cMINER_KILL_SCORE
+  | PelletShooter -> cPELLET_KILL_SCORE
+  | LazerGunner	-> cLAZER_KILL_SCORE
 		
