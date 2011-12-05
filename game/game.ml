@@ -75,6 +75,8 @@ let startGame (wt,pt,ot,t,stime) =
 	
 let handleAction (wt,pt,ot,(t:timer ref),(starttime:timer ref)) worm_id act c = 
 	if !t > (!starttime +. cTIME_LIMIT) then (Control(GameEnd)) else
+	if (c = Red && worm_id <0) || (c = Blue && worm_id > 0) 
+	then Result(worm_id,Failed) else
 	let (_,wormtype,hlth,pos,vel,a,t1,t2) = Hashtbl.find wt worm_id in
   match act with
 		QueueShoot(v) ->
@@ -93,6 +95,7 @@ let handleAction (wt,pt,ot,(t:timer ref),(starttime:timer ref)) worm_id act c =
 				then Util.scale (Util.normalize projv) maxv
 				else projv in
 			let accel = (0.,0.) in
+			Mutex.lock pidLock;
 			let p : projectile = 
 				(!projectile_id_counter,weapon,projpos,projv,accel,timer) in
 				let relList = 
@@ -102,7 +105,6 @@ let handleAction (wt,pt,ot,(t:timer ref),(starttime:timer ref)) worm_id act c =
 				Mutex.lock projLock;
 				Hashtbl.replace futureProj worm_id (relList@[p]);
 				Mutex.unlock projLock;
-				Mutex.lock pidLock;
 				projectile_id_counter := !projectile_id_counter + 1;
 				Mutex.unlock pidLock;
 				Result(worm_id,Success)
@@ -383,7 +385,7 @@ let handleTime (wt,pt,ot,t,startedtime) newt =
 			(* the input worm_id can be one of two things:
 					a) the weapon is a bat and it is a positive int if
 							the bat holder is red / negative int if blue 
-							-In this case worm_id * id <=0 (line 48ish) 
+							-In this case worm_id * id <=0 
 								if the worm hit and the worm hitting are on opposite teams
 					b) the weapon is not a bat and it is 0
 							-In this case, worm_id * id = 0 always and thus
