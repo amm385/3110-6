@@ -98,10 +98,10 @@ let handleAction (wt,pt,ot,(t:timer ref),(starttime:timer ref)) worm_id act c =
 			Mutex.lock pidLock;
 			let p : projectile = 
 				(!projectile_id_counter,weapon,projpos,projv,accel,timer) in
-				let relList = 
-					if Hashtbl.mem futureProj worm_id
-					then Hashtbl.find futureProj worm_id
-					else [] in
+			let relList = 
+				if Hashtbl.mem futureProj worm_id
+				then Hashtbl.find futureProj worm_id
+				else [] in
 				Mutex.lock projLock;
 				Hashtbl.replace futureProj worm_id (relList@[p]);
 				Mutex.unlock projLock;
@@ -126,15 +126,13 @@ let handleAction (wt,pt,ot,(t:timer ref),(starttime:timer ref)) worm_id act c =
 				(* Here we use vx to hide the team for friendly fire analysis 
 						note, vx is otherwise useless *)
 				let team = float_of_int worm_id in
-				(!projectile_id_counter,Bat,pos,(team,0.),(0.,0.),None) in
-			(try
-				let relList = Hashtbl.find futureProj worm_id in
-					Mutex.lock projLock;
-					Hashtbl.replace futureProj worm_id (relList@[p]);
-					Mutex.unlock projLock;
-			with Not_found ->
+				 (!projectile_id_counter,Bat,pos,(team,0.),(0.,0.),None) in
+				let relList =
+					if Hashtbl.mem futureProj worm_id
+					then Hashtbl.find futureProj worm_id
+					else [] in
 				Mutex.lock projLock;
-				Hashtbl.add futureProj worm_id [p]);
+				Hashtbl.replace futureProj worm_id (relList@[p]);
 				Mutex.unlock projLock;
 			Mutex.lock pidLock;
 			projectile_id_counter := !projectile_id_counter + 1;
@@ -296,7 +294,7 @@ let handleTime (wt,pt,ot,t,startedtime) newt =
 				let drag = if inCloud px py then rawdrag +. cCLOUD_DRAG else rawdrag in
 				(*subject to change depending on the agreed formula*)
 				let newax = -.drag *. vx in
-        let neway = -.drag *. vx +. cGRAVITY in				
+        let neway = -.drag *. vy +. cGRAVITY in				
 				let newvx = vx +. newax *. (newt -. !t) in
 				let newvy = vy +. neway *. (newt -. !t) in
 			  let newpx = px +. newvx *. (newt -. !t) in
@@ -341,9 +339,10 @@ let handleTime (wt,pt,ot,t,startedtime) newt =
 							then () (* mine planted outside proximity *)
 							else (
 								let cooldownt = getCooldown wormtype in
+								let newvx = if weapont = Bat then vxproj else vx +. vxproj in
 								Mutex.lock gameLock;
 								Hashtbl.add pt pid 
-									(pid,weapont,(px,py),(vx +. vxproj,vy +. vyproj),a,t);
+									(pid,weapont,(px,py),(newvx,vy +. vyproj),a,t);
 								Hashtbl.replace wt wid 
 									(wid,wormtype,h,(px,py),(vx,vy),(ax,ay),cooldownt,t2);
 								Mutex.unlock gameLock;

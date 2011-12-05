@@ -11,6 +11,7 @@ let pi4 = 0.785398163
 
 (* (id,range where they will cause havoc) pairs *)
 let projectiles = Hashtbl.create (cNUM_TEAMS * cTEAM_SIZE)
+let waypoints = Hashtbl.create (cNUM_TEAMS * cTEAM_SIZE)
 let projLock = Mutex.create ()
 		
 (* returns true if the worm can outrun the projectile *)
@@ -51,19 +52,17 @@ let updateProjTable pt =
 		match projTracker (id,weapont,p,v,a,t) with
 			None -> ()
 		| Some(x,y) -> 
-				let radius = getRadius weapont in		
-					print_endline ("( " ^ 
-						(string_of_float(x -. radius)) ^ ", " ^ 
-						(string_of_float(x+.radius)) ^" )");
+				let radius = getRadius weapont *. 1.6 in	
 					Hashtbl.add projectiles id (x -. radius, x +. radius) in
 	List.iter helper pt;
 	Mutex.unlock projLock
 		
 (* finds the closest worm in wormlst to position x (horz dist only *)		
 let findClosestWorm x wormlst =
-	let helper bestx (_,_,_,(px,py),_,_,_,_) = 
-		if abs_float(px -. x) < abs_float(bestx -. x) then px else bestx in
-	List.fold_left helper (-.cBOARD_WIDTH) wormlst
+	let helper (bestx,wt') (_,wt,_,(px,py),_,_,_,_) = 
+		if abs_float(px -. x) < abs_float(bestx -. x) 
+		then (px,wt) else (bestx,wt') in
+	List.fold_left helper (-.cBOARD_WIDTH,Basic) wormlst
 
 (* given a worm location and type, and a target, finds the 
  * v vector that gets it there (ignoring satellites)*)
@@ -117,19 +116,20 @@ let indanger px =
 let rec findleft px =
 	let (b,min,max) = indanger px in
 	if px = min then None else (* pinned against wall *) 
-	if b then (print_endline (string_of_float min); findleft min)
+	if b then findleft (min -. 0.1)
 	else Some px
 
 (* find closest point to the right that is safe *)
 let rec findright px =
 	let (b,min,max) = indanger px in
 	if px = max then None else
-	if b then findright max else Some px
+	if b then findright (max +. 0.1) else Some px
 	
+	(* 478.389 *)
 (* finds a close, safe spot, given px *)
 let findnewpos px = 
-	let (b,_,_) = indanger px in
-	if b then px else
+	let (b,min,max) = indanger px in
+	if (not b) then px else 
 	match (findright px,findleft px) with
 		(None,None) -> px (* update if you want to dodge bullets *)
 	| (Some r,None) -> r
@@ -140,6 +140,7 @@ let findnewpos px =
 	
 (* main bot processor *)
 let bot c = 
+ 
 	while true do
 		let (redteam,blueteam,proj_lst,obst_lst,timer) = 
 			match get_status (GameStatus) with
@@ -148,24 +149,39 @@ let bot c =
 		let ((scoreA,wormsA),(scoreB,wormsB)) = (* we are teamA *)
 			if c = Red then (redteam,blueteam) else (blueteam,redteam) in			
 		updateProjTable proj_lst;
+		
+		
+		
+		
+		
 		let wormCycle (id,wormtype,h,(px,py),v,a,t1,t2) =
+			(if Hashtbl.mem waypoints id &&
+				abs_float((Hashtbl.find waypoints id) -. px) <= 1.0
+			then Hashtbl.remove waypoints id
+			else ());
 			(* move to a safe location *)
 			let newpos = findnewpos px in
-			let _ = 
-				if newpos = px then Failed else 
-				send_action (QueueMove(newpos,yfinder newpos)) id in
+			let _ = if newpos = px then Failed else
+				if Hashtbl.mem waypoints id then Failed else
+				(Hashtbl.add waypoints id newpos;
+				send_action (QueueMove(newpos,yfinder newpos)) id) in
 
 			(* make best shot possible *)
-			(*let target = findClosestWorm px wormsB in
-			if abs_float (target -. px) <= cBAT_LENGTH
-			then 
-				let _ = send_action QueueBat id in ()
-			else (
-				let shotVector = findShot wormtype px py target in
-				let _ = send_action (QueueShoot(shotVector)) id in
-					*)()
-			(**) in
+			let (target,enemytype) = findClosestWorm px wormsB in
+			let enemyradius = getWormRadius enemytype in
+			 
+			 if t1 > 0. then () else
+				(if Util.mag (px -. target,py -. (yfinder target)) <= 
+					cBAT_LENGTH +. enemyradius
+				then 
+					let _ = send_action QueueBat id in ()
+				else (
+					(*let shotVector = findShot wormtype px py target in*)
+					let _ = send_action (QueueShoot(300.,300.)) id in
+						()
+				)) in
 		List.iter wormCycle wormsA;
+		Thread.delay cUPDATE_TIME;
 	done
 	
 let () = start_bot bot

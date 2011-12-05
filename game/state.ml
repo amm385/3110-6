@@ -137,4 +137,13 @@ let getKillScore wormtype =
   | Miner -> cMINER_KILL_SCORE
   | PelletShooter -> cPELLET_KILL_SCORE
   | LazerGunner	-> cLAZER_KILL_SCORE
+	
+let getWormRadius wormtype = 
+  match wormtype with 
+	 Basic -> cBASIC_RADIUS
+ | Grenader -> cGRENADER_RADIUS
+ | MissileBlaster -> cMISSILE_BLASTER_RADIUS
+ | Miner -> cMINER_RADIUS
+ | PelletShooter -> cPELLET_SHOOTER_RADIUS
+ | LazerGunner	-> cLAZER_GUNNER_RADIUS
 		
